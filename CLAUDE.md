@@ -43,6 +43,8 @@ dbt, Airflow and Spark are later extensions: do not add them unless asked (see `
 - Install packages with `uv` and keep `uv.lock` in sync (`uv lock` after you change `pyproject.toml`).
 - The Docker image must never contain secrets. Keep `.dockerignore` strict; pass secrets at run time (env vars or a read-only mount).
 - Integration tests need Postgres: `make up`, then `make test-integration`. If you change `docker/postgres/init/01_seed.sql`, update `tests/test_ingestion_integration.py` too.
+- Every pipeline step must go through `run_step` in `pipeline/run_daily.py`, so it is logged, recorded in `pipeline_runs` and alerted. Recording and alerts must never crash the pipeline.
+- `ALERT_WEBHOOK_URL` and service-account keys are secrets: never log or commit them. Keep one service account per job (see `docs/DEPLOY_VM.md`).
 - CI actions and pre-commit hooks are pinned to versions. Check the real latest tag before you bump one.
 
 ## Before saying it is done

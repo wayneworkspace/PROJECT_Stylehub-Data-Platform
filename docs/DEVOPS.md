@@ -12,6 +12,9 @@ This page explains the DevOps parts of the repo and what to add next.
 | CI | `.github/workflows/ci.yml` | Runs the same checks on each pull request, and also the tests and a Docker build. |
 | Pull request template | `.github/pull_request_template.md` | Reminds you to run the checks and to keep secrets out. |
 | Locked packages | `uv.lock` | Keeps local, Docker and CI runs on the same package versions. |
+| Logs and run history | `pipeline/run_daily.py`, `pipeline/runs.py`, `sql/ops/` | Logs each step and saves one row per step in `stylehub_ops.pipeline_runs`. |
+| Failure alerts | `pipeline/alerts.py` | Sends a Discord message when a step fails. Off when `ALERT_WEBHOOK_URL` is empty. |
+| VM jobs | `deploy/`, `docs/DEPLOY_VM.md` | A script and systemd timers. Two jobs, each with its own service account. |
 
 ## CI jobs
 
@@ -33,9 +36,8 @@ If you change this file, update `tests/test_ingestion_integration.py` too.
 
 | Step | Why |
 |---|---|
-| Logging and a run history table | Plain `print` lines are hard to search. Log the step, the date, the row count and the time, and write one row per run to BigQuery. |
-| Failure alerts | A failed step or check should send a message to Discord or email. |
-| Run on a GCP VM | Practice Linux and networking. Use cron or a systemd timer, read logs with `journalctl`, and limit the firewall to your own IP. |
-| One service account per job | Ingestion should write only to GCS. Transform should write only to BigQuery. |
-| Push the image | Build in CI and push to Artifact Registry. Use Workload Identity Federation, not a key file. |
+| Run it on a real VM | The files in `deploy/` have not run on GCP yet. Follow [DEPLOY_VM.md](DEPLOY_VM.md) and fix what breaks. |
+| Retries and a "did not run" alert | Today a failed step is reported, but a timer that never fires is not. Add a dead-man check, for example a daily message that must arrive. |
+| Replace key files | Use Workload Identity Federation or an attached service account, not JSON keys on disk. |
+| Push the image | Build in CI and push to Artifact Registry. |
 | Terraform | Describe the bucket, datasets, service accounts and VM as code. Do this after you have built them by hand once. |

@@ -24,6 +24,7 @@ def settings() -> dict[str, str]:
         "bronze": os.environ.get("BQ_BRONZE", "stylehub_bronze"),
         "silver": os.environ.get("BQ_SILVER", "stylehub_silver"),
         "gold": os.environ.get("BQ_GOLD", "stylehub_gold"),
+        "ops": os.environ.get("BQ_OPS", "stylehub_ops"),
     }
 
 
