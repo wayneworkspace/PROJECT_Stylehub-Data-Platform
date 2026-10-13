@@ -24,3 +24,6 @@ select = ["E", "F", "I", "UP"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+# Integration tests need a real Postgres. Run them on purpose with: pytest -m integration
+addopts = "-m 'not integration'"
+markers = ["integration: needs a running Postgres (see docker-compose.yml)"]

@@ -1,4 +1,4 @@
-.PHONY: setup lint test ingest bronze silver gold check daily
+.PHONY: setup lint test test-integration up down docker-build ingest bronze silver gold check daily
 
 # Usage: make bronze DATE=2026-10-01
 DATE ?= $(shell date +%F)
@@ -11,6 +11,20 @@ lint:
 
 test:
 	uv run pytest
+
+# Needs the local Postgres: make up
+test-integration:
+	PG_HOST=localhost PG_PORT=5432 PG_DATABASE=stylehub PG_USER=stylehub \
+	PG_PASSWORD=$${LOCAL_PG_PASSWORD:-stylehub_local} uv run pytest -m integration
+
+up:
+	docker compose up -d postgres
+
+down:
+	docker compose down -v
+
+docker-build:
+	docker build -t stylehub-pipeline .
 
 ingest:
 	uv run python -m ingestion.incremental --table orders --date $(DATE)

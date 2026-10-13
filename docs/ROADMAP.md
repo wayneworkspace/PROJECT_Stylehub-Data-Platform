@@ -27,5 +27,13 @@
 - [ ] All 5 Silver tables built, `make check` passes the grain check
 - [ ] Gold: revenue by category, return rate, delivery time
 
+## DevOps (done)
+- [x] Dockerfile and `docker-compose.yml` with a local Postgres and sample data
+- [x] GitHub Actions CI: pre-commit, lint, unit and integration tests, Docker build
+- [x] Pre-commit hooks (ruff, gitleaks, file checks) and a locked `uv.lock`
+
+## DevOps (next)
+See [DEVOPS.md](DEVOPS.md): logging and run history, failure alerts, a GCP VM with cron, one service account per job, Artifact Registry, Terraform.
+
 ## After the curriculum
 See [EXTENDING.md](EXTENDING.md): dbt, Airflow, Spark. Also add daily incremental data (1,000 to 4,000 rows) so the pipeline runs for real.
