@@ -90,11 +90,13 @@ flowchart LR
 │   ├── workflows/ci.yml     # Checks that run on every pull request
 │   └── pull_request_template.md
 ├── assets/                  # Icons used in this README
+├── deploy/                  # Script and systemd timers to run on a VM
 ├── docker/
 │   └── postgres/init/       # Sample data for the local Postgres
 ├── docs/
 │   ├── ARCHITECTURE.md      # Layers, star schema, Airbyte sync modes
 │   ├── DECISIONS.md         # Design choices and measurements
+│   ├── DEPLOY_VM.md         # Run the pipeline on a GCP VM
 │   ├── DEVOPS.md            # CI, Docker, pre-commit and what comes next
 │   ├── EXTENDING.md         # How to add dbt, Airflow and Spark later
 │   └── ROADMAP.md           # Plan by course session
@@ -103,15 +105,18 @@ flowchart LR
 │   └── raw_writer.py        # Write Parquet and metadata columns to GCS
 ├── notebooks/               # Homework notebooks, one folder per session
 ├── pipeline/
+│   ├── alerts.py            # Send a message when a step fails
 │   ├── checks.py            # Run the data checks
 │   ├── config.py            # Settings and SQL placeholders
 │   ├── load_bronze.py       # Raw Zone -> Bronze (append)
-│   ├── run_daily.py         # Run all steps for one date
-│   └── run_sql.py           # Run the SQL files of one layer
+│   ├── run_daily.py         # Run all steps for one date, with logs and alerts
+│   ├── run_sql.py           # Run the SQL files of one layer
+│   └── runs.py              # Save one row per step in BigQuery
 ├── sql/
 │   ├── bronze/              # Table setup (partitioned events)
 │   ├── silver/              # Facts and dimensions
 │   ├── gold/                # Business tables
+│   ├── ops/                 # The pipeline_runs table
 │   └── checks/              # Quality checks
 ├── tests/                   # Unit tests and integration tests
 ├── .dockerignore
@@ -228,8 +233,10 @@ make check
 | Option | How |
 |---|---|
 | By hand | `uv run python -m pipeline.run_daily --date 2026-10-01` |
-| Start at a later step | Add `--from-step silver` (steps: ingest, bronze, silver, gold, checks). |
-| On a schedule | This repo has no scheduler. Call `run_daily` from Windows Task Scheduler or cron. Airflow is a later option (see [docs/EXTENDING.md](docs/EXTENDING.md)). |
+| Start or stop at a step | Add `--from-step silver` or `--to-step bronze` (steps: ingest, bronze, silver, gold, checks). |
+| See what ran | Each step is saved in the BigQuery table `stylehub_ops.pipeline_runs`: status, time, rows and error. |
+| Get alerts | Set `ALERT_WEBHOOK_URL` to a Discord webhook. A failed step sends one message. |
+| On a schedule | Use the systemd timers in `deploy/`. See [docs/DEPLOY_VM.md](docs/DEPLOY_VM.md). Airflow is a later option (see [docs/EXTENDING.md](docs/EXTENDING.md)). |
 
 ### Checks before you commit
 
@@ -254,6 +261,8 @@ See [docs/DEVOPS.md](docs/DEVOPS.md) for what each CI job does.
 | `BQ_BRONZE`, `BQ_SILVER`, `BQ_GOLD` | `.env` | Dataset names. Defaults `stylehub_bronze`, `stylehub_silver`, `stylehub_gold`. |
 | `PG_HOST`, `PG_PORT`, `PG_DATABASE`, `PG_USER`, `PG_PASSWORD` | `.env` | Read-only Postgres source. Never commit the password. |
 | `LOCAL_PG_PASSWORD` | Your shell (optional) | Password for the local Docker Postgres. Default `stylehub_local`. |
+| `BQ_OPS` | `.env` | Dataset for `pipeline_runs`. Default `stylehub_ops`. Create it before the first run. |
+| `ALERT_WEBHOOK_URL` | `.env` (optional) | Discord webhook for failure alerts. It is a secret. Leave it empty to turn alerts off. |
 | `GCP_REGION`, `STYLEHUB_API_KEY` | `.env` | Listed in `.env.example`, but no code reads them yet. |
 | Watermark column | `WATERMARK` in `ingestion/incremental.py` | One column per table. Both tables use `updated_at` for now. |
 | Lookback days | `LOOKBACK_DAYS` in `ingestion/incremental.py` | Default 1. |
@@ -289,8 +298,11 @@ See [docs/DEVOPS.md](docs/DEVOPS.md) for what each CI job does.
 | Sources | Python ingestion covers `orders` and `order_items` only. `products` (API), `users` and `shipments` need Airbyte or a manual upload. |
 | Watermark | `order_items` uses `updated_at` without a check on real data. See `docs/DECISIONS.md`. |
 | Deletes | The pipeline cannot see rows that the source deletes. |
-| Scheduling | No scheduler, no retries and no alerts. |
-| Logging | Steps use `print`. There are no log levels and no run history yet. |
+| Scheduling | Timers run each job once a day. There are no retries. A failed step stops the run until the next day or a manual run. |
+| Logging | `run_daily` uses `logging`. The ingestion, Bronze and SQL scripts still use `print` when you run them alone. |
+| Run history | Only `run_daily` writes to `pipeline_runs`. Recording is best effort: if BigQuery is down, the row is lost. Only the Bronze step counts rows. |
+| Alerts | One Discord message per failed step. Nothing alerts you if the VM or the timer does not run at all. |
+| VM | The VM files in `deploy/` have not run on a real GCP project. |
 | Docker | CI builds the image, but it is not pushed to a registry or run on a server yet. |
 | Rebuilds | Silver and Gold use `CREATE OR REPLACE TABLE`. Each run rebuilds the whole table. |
 | Events | `events` is only partitioned. There is no `fact_events` or `dim_date` yet. |
@@ -306,7 +318,8 @@ See [docs/DEVOPS.md](docs/DEVOPS.md) for what each CI job does.
 - [ ] Add `fact_events` and `dim_date`
 - [ ] Add daily sample data so the pipeline runs on new rows
 - [ ] Add an architecture diagram image
-- [ ] Add logging, a run history table and failure alerts
-- [ ] Run the pipeline on a small GCP VM with cron or a systemd timer
+- [x] Add logging, a run history table and failure alerts
+- [ ] Run the pipeline on a small GCP VM and fix what breaks (files are ready in `deploy/`)
+- [ ] Add retries and an alert for a job that did not run
 - [ ] Describe the bucket, datasets and service accounts in Terraform
 - [ ] Add dbt, Airflow and Spark (see [docs/EXTENDING.md](docs/EXTENDING.md))

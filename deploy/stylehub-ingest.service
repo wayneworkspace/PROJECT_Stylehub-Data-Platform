@@ -1,0 +1,9 @@
+[Unit]
+Description=StyleHub pipeline: Ingest from Postgres into the Raw Zone (GCS)
+Wants=network-online.target
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/stylehub/deploy/run_pipeline.sh ingest ingest /etc/stylehub/ingest-sa.json
+# Logs go to journald. Read them with: journalctl -u stylehub-ingest
