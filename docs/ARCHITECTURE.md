@@ -1,53 +1,53 @@
-# Kiến trúc
+# Architecture
 
-## Các tầng
+## Layers
 
-| Tầng | Nơi lưu | Nội dung | Ai ghi |
+| Layer | Where | Contents | Written by |
 |---|---|---|---|
-| Raw Zone | GCS `raw/stylehub/<bảng>/date=<ngày>/batch_id=<id>/` | File vừa lấy về, append-only, có `_ingested_at`, `_source`, `_batch_id` | `ingestion/` hoặc Airbyte |
-| Bronze | BigQuery `stylehub_bronze` | Bản sao nguồn, giữ mọi lần ingest | `pipeline/load_bronze.py` |
-| Silver | BigQuery `stylehub_silver` | Đã sạch, tổ chức thành fact và dimension | `sql/silver/` |
-| Gold | BigQuery `stylehub_gold` | Bảng nghiệp vụ, chứa rule | `sql/gold/` |
+| Raw Zone | GCS `raw/stylehub/<table>/date=<date>/batch_id=<id>/` | Files exactly as fetched, append-only, with `_ingested_at`, `_source`, `_batch_id` | `ingestion/` or Airbyte |
+| Bronze | BigQuery `stylehub_bronze` | Copy of the source, keeping every ingest | `pipeline/load_bronze.py` |
+| Silver | BigQuery `stylehub_silver` | Cleaned, organized into facts and dimensions | `sql/silver/` |
+| Gold | BigQuery `stylehub_gold` | Business tables that hold the rules | `sql/gold/` |
 
-Rule nghiệp vụ đổi thì chạy lại từ tầng gần nhất: sửa Gold, Silver giữ nguyên.
+When a business rule changes, rerun from the nearest layer: edit Gold, leave Silver as is.
 
 ## Star schema (Silver)
 
-| Bảng | Grain | Loại |
+| Table | Grain | Type |
 |---|---|---|
-| fact_order_items | một món hàng | fact |
-| fact_orders | một đơn hàng | fact |
-| fact_shipments | một lô giao hàng | fact |
-| dim_products | một sản phẩm | dimension |
-| dim_users | một khách hàng | dimension |
+| fact_order_items | one order item | fact |
+| fact_orders | one order | fact |
+| fact_shipments | one shipment | fact |
+| dim_products | one product | dimension |
+| dim_users | one customer | dimension |
 
-`events` (hành vi, ~108 triệu dòng) nằm ở Bronze dưới dạng `events_partitioned`. Khi cần mô hình hóa sẽ thêm `fact_events` và `dim_date` vào Silver.
+`events` (behavior, ~108 million rows) sits in Bronze as `events_partitioned`. When it needs modeling, `fact_events` and `dim_date` will be added to Silver.
 
-## Gold hiện có
+## Current Gold tables
 
-| Bảng | Trả lời câu hỏi |
+| Table | Question it answers |
 |---|---|
-| daily_revenue | Doanh thu và số đơn mỗi ngày (bỏ Cancelled) |
-| monthly_revenue_by_category | Doanh thu, lợi nhuận theo category mỗi tháng |
-| return_rate_by_state | Tỷ lệ đơn bị trả lại theo bang |
-| avg_delivery_days_by_state | Thời gian giao hàng trung bình theo bang |
+| daily_revenue | Revenue and order count per day (Cancelled excluded) |
+| monthly_revenue_by_category | Revenue and profit by category per month |
+| return_rate_by_state | Share of returned orders by state |
+| avg_delivery_days_by_state | Average delivery time by state |
 
-## Ingestion (Buổi 2 và 4)
+## Ingestion (sessions 2 and 4)
 
-- **Python** (`ingestion/`): dùng khi cần kiểm soát từng bước: chọn watermark, lookback, đường dẫn Raw.
-- **Airbyte OSS** trên VM GCP (`e2-standard-4`, `asia-southeast1-b`): dùng cho Postgres và API (Connector Builder).
+- **Python** (`ingestion/`): use when you need control over each step: choosing the watermark, the lookback, and the Raw path.
+- **Airbyte OSS** on a GCP VM (`e2-standard-4`, `asia-southeast1-b`): use for Postgres and the API (Connector Builder).
 
-Sync mode Airbyte (theo Buổi 4):
+Airbyte sync modes (from session 4):
 
-| Bảng | Mode | Lý do |
+| Table | Mode | Reason |
 |---|---|---|
-| orders | Incremental, Append (cursor `updated_at`) | Đơn đổi trạng thái là thêm một dòng, giữ mọi phiên bản |
-| order_items | Incremental, Append (cursor chọn sau khi kiểm tra data thật) | Xem DECISIONS.md mục 2 |
-| products | Full Refresh, Overwrite | Bảng nhỏ, cần snapshot đầy đủ |
-| shipments | Cần quyết định, ghi vào DECISIONS.md | |
+| orders | Incremental, Append (cursor `updated_at`) | A status change adds a row, keeping every version |
+| order_items | Incremental, Append (cursor chosen after checking real data) | See DECISIONS.md, section 2 |
+| products | Full Refresh, Overwrite | Small table, needs a full snapshot |
+| shipments | To be decided, record in DECISIONS.md | |
 
-Vận hành: tắt VM Airbyte sau khi dùng, firewall port 8000 chỉ cho IP của mình.
+Operations: stop the Airbyte VM after use and restrict the port 8000 firewall rule to your own IP.
 
-## Điểm cắm cho mở rộng
+## Extension points
 
-Mỗi bước là một CLI độc lập có `--date`, an toàn khi chạy lại. Chi tiết cách thêm dbt, Airflow, Spark ở [EXTENDING.md](EXTENDING.md).
+Every step is an independent CLI with `--date` and is safe to re-run. See [EXTENDING.md](EXTENDING.md) for how to add dbt, Airflow and Spark.

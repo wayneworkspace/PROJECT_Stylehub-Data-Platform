@@ -1,6 +1,6 @@
--- Grain: một dòng là một sản phẩm.
--- Bronze giữ mọi snapshot theo ngày; Silver lấy snapshot nạp sau cùng của mỗi id.
--- Kiểm tra tên cột với schema thật trước khi chạy.
+-- Grain: one row per product.
+-- Bronze keeps every daily snapshot; Silver takes the most recently ingested snapshot of each id.
+-- Check the column names against the real schema before running.
 
 CREATE OR REPLACE TABLE `${project}.${silver}.dim_products` AS
 WITH latest AS (

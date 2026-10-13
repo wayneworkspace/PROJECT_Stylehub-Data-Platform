@@ -1,7 +1,7 @@
--- Buổi 1: bảng events (~108 triệu dòng) partition theo ngày, cluster theo event_type, product_id.
--- Chạy tay một lần (quét toàn bảng nguồn), không nằm trong chạy hằng ngày.
--- ${source} là dataset chứa bảng events gốc của khóa học (mặc định stylehub).
--- Nếu query theo user_id là phổ biến, cân nhắc thêm user_id vào CLUSTER BY (xem docs/DECISIONS.md).
+-- Session 1: events table (~108 million rows) partitioned by day, clustered by event_type, product_id.
+-- Run by hand once (it scans the whole source table); it is not part of the daily run.
+-- ${source} is the dataset holding the course's original events table (default: stylehub).
+-- If queries by user_id are common, consider adding user_id to CLUSTER BY (see docs/DECISIONS.md).
 
 CREATE OR REPLACE TABLE `${project}.${bronze}.events_partitioned`
 PARTITION BY DATE(event_time)

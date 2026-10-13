@@ -1,6 +1,6 @@
-"""Ghi DataFrame vào Raw Zone trên GCS, append-only, kèm 3 cột metadata.
+"""Write a DataFrame to the Raw Zone on GCS, append-only, with metadata columns.
 
-Ingestion chỉ extract và ghi raw. Không transform ở đây.
+Ingestion only extracts and writes raw data. No transforming here.
 """
 
 import io
@@ -30,7 +30,7 @@ def raw_path(table: str, data_date: str, batch_id: str) -> str:
 
 
 def write_raw(df: pd.DataFrame, table: str, data_date: str, source: str) -> str:
-    """Ghi một file parquet mới. Mỗi lần chạy là một batch_id mới, không ghi đè."""
+    """Write a new parquet file. Every run gets a new batch_id and never overwrites."""
     batch_id = new_batch_id()
     df = add_metadata(df, source, batch_id)
 

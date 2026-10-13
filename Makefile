@@ -1,6 +1,6 @@
 .PHONY: setup lint test ingest bronze silver gold check daily
 
-# Dùng: make bronze DATE=2026-10-01
+# Usage: make bronze DATE=2026-10-01
 DATE ?= $(shell date +%F)
 
 setup:

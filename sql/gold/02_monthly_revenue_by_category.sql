@@ -1,5 +1,5 @@
--- Câu hỏi: doanh thu và lợi nhuận theo category mỗi tháng (Buổi 5, Bài tập 1).
--- Rule ở Gold: bỏ đơn Cancelled, lợi nhuận = amount - total_cost.
+-- Question: revenue and profit by category per month (session 5, exercise 1).
+-- Rules at Gold: exclude Cancelled orders, profit = amount - total_cost.
 
 CREATE OR REPLACE TABLE `${project}.${gold}.monthly_revenue_by_category` AS
 WITH valid_orders AS (

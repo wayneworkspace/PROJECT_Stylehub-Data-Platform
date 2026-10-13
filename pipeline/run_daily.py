@@ -1,8 +1,9 @@
-"""Chạy cả pipeline cho một ngày, tuần tự. Mỗi bước là một hàm riêng.
+"""Run the whole pipeline for one date, step by step. Each step is its own function.
 
-Sau này đưa lên Airflow thì mỗi bước trong STEPS thành một task, không cần sửa logic bên trong.
+When moving to Airflow later, each entry in STEPS becomes a task,
+with no change to the logic inside.
 
-Dùng: python -m pipeline.run_daily --date 2026-10-01
+Usage: python -m pipeline.run_daily --date 2026-10-01
 """
 
 import argparse
@@ -20,7 +21,7 @@ def step_ingest(data_date: str) -> None:
 
 def step_bronze(data_date: str) -> None:
     for table in TABLES:
-        print(f"{table}: {load_day(table, data_date)} dòng")
+        print(f"{table}: {load_day(table, data_date)} rows")
 
 
 def step_silver(data_date: str) -> None:
@@ -33,7 +34,7 @@ def step_gold(data_date: str) -> None:
 
 def step_checks(data_date: str) -> None:
     if not run_checks():
-        raise SystemExit("Kiểm tra dữ liệu thất bại")
+        raise SystemExit("Data checks failed")
 
 
 STEPS = [

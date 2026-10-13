@@ -1,6 +1,6 @@
--- Grain: một dòng là một món hàng (order item).
--- Số đo: amount (cộng được), total_cost = giá vốn hiện tại của sản phẩm * số lượng.
--- Cần dim_products đã tạo (01_). Mỗi id lấy bản mới nhất trong Bronze.
+-- Grain: one row per order item.
+-- Measures: amount (additive), total_cost = the product's current cost * quantity.
+-- Needs dim_products to exist (01_). Each id takes its latest version in Bronze.
 
 CREATE OR REPLACE TABLE `${project}.${silver}.fact_order_items`
 PARTITION BY DATE(created_at)

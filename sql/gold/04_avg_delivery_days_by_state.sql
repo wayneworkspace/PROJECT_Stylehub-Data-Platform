@@ -1,5 +1,5 @@
--- Câu hỏi: thời gian giao hàng trung bình, từ lúc gửi đến lúc nhận, theo bang (Buổi 5, Bài tập 2).
--- Chỉ tính lô đã có cả shipped_at và delivered_at.
+-- Question: average delivery time, from shipped to received, by state (session 5, exercise 2).
+-- Only shipments that have both shipped_at and delivered_at are counted.
 
 CREATE OR REPLACE TABLE `${project}.${gold}.avg_delivery_days_by_state` AS
 WITH delivered AS (

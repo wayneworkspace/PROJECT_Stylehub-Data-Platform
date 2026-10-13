@@ -1,4 +1,4 @@
--- Grain: số dòng phải bằng số id khác nhau. Trả về dòng nếu bảng nào vi phạm.
+-- Grain: the row count must equal the distinct id count. Returns a row for each table that breaks it.
 
 WITH grains AS (
   SELECT 'dim_products' AS table_name, COUNT(*) AS n_rows, COUNT(DISTINCT id) AS n_ids

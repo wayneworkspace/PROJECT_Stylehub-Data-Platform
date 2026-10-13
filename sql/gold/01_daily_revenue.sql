@@ -1,4 +1,4 @@
--- Rule nghiệp vụ: tính mọi đơn trừ Cancelled (Buổi 3). Mỗi ngày một dòng.
+-- Business rule: count every order except Cancelled (session 3). One row per day.
 
 CREATE OR REPLACE TABLE `${project}.${gold}.daily_revenue` AS
 WITH valid_orders AS (

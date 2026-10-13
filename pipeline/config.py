@@ -1,4 +1,4 @@
-"""Cấu hình dùng chung. Đọc từ biến môi trường (xem .env.example)."""
+"""Shared configuration, read from environment variables (see .env.example)."""
 
 import os
 from pathlib import Path
@@ -9,7 +9,8 @@ from dotenv import load_dotenv
 ROOT = Path(__file__).resolve().parents[1]
 SQL_DIR = ROOT / "sql"
 
-# Tên thư mục Raw của từng bảng, nếu khác tên bảng (theo Buổi 2: products lấy từ API).
+# Raw folder name per table when it differs from the table name
+# (session 2: products come from the API).
 RAW_DIR = {"products": "products_api"}
 
 
@@ -27,5 +28,5 @@ def settings() -> dict[str, str]:
 
 
 def render_sql(path: Path) -> str:
-    """Thay ${project}, ${bronze}, ${silver}, ${gold}... trong file SQL."""
+    """Substitute ${project}, ${bronze}, ${silver}, ${gold}, ... in a SQL file."""
     return Template(path.read_text(encoding="utf-8")).substitute(settings())

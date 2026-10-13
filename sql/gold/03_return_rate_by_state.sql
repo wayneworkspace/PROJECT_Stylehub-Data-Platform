@@ -1,4 +1,4 @@
--- Câu hỏi: tỷ lệ đơn bị trả lại (Returned) theo bang của khách (Buổi 5, Bài tập 2).
+-- Question: share of returned orders by the customer's state (session 5, exercise 2).
 
 CREATE OR REPLACE TABLE `${project}.${gold}.return_rate_by_state` AS
 WITH orders AS (

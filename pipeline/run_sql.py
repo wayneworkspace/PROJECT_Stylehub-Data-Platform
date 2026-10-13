@@ -1,8 +1,8 @@
-"""Chạy các file SQL của một tầng theo thứ tự tên file (01_, 02_, ...).
+"""Run the SQL files of one layer in filename order (01_, 02_, ...).
 
-Dùng:
+Usage:
     python -m pipeline.run_sql silver
-    python -m pipeline.run_sql gold --dry-run     # chỉ in bytes processed (Buổi 1)
+    python -m pipeline.run_sql gold --dry-run     # only print bytes processed (session 1)
     python -m pipeline.run_sql silver --file 04_fact_order_items.sql
 """
 
@@ -21,7 +21,7 @@ def run_layer(layer: str, dry_run: bool = False, only_file: str | None = None) -
     if only_file:
         paths = [p for p in paths if p.name == only_file]
         if not paths:
-            raise SystemExit(f"Không thấy {only_file} trong sql/{layer}/")
+            raise SystemExit(f"{only_file} not found in sql/{layer}/")
 
     for path in paths:
         config = bigquery.QueryJobConfig(dry_run=dry_run, use_query_cache=False)
@@ -30,7 +30,7 @@ def run_layer(layer: str, dry_run: bool = False, only_file: str | None = None) -
             print(f"{layer}/{path.name}: {job.total_bytes_processed:,} bytes")
         else:
             job.result()
-            print(f"{layer}/{path.name}: xong")
+            print(f"{layer}/{path.name}: done")
 
 
 def main() -> None:

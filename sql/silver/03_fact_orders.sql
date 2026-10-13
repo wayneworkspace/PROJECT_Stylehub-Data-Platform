@@ -1,5 +1,5 @@
--- Grain: một dòng là một đơn hàng, mang user_id. Mỗi id lấy bản mới nhất trong Bronze.
--- order_date là ngày đặt đơn, dùng cho Gold.
+-- Grain: one row per order, carrying user_id. Each id takes its latest version in Bronze.
+-- order_date is the day the order was placed, used by Gold.
 
 CREATE OR REPLACE TABLE `${project}.${silver}.fact_orders`
 PARTITION BY order_date

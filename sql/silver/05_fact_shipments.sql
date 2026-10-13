@@ -1,5 +1,5 @@
--- Grain: một dòng là một lô giao hàng. user_id lấy từ fact_orders (03_).
--- Kiểm tra tên cột với schema thật trước khi chạy.
+-- Grain: one row per shipment. user_id comes from fact_orders (03_).
+-- Check the column names against the real schema before running.
 
 CREATE OR REPLACE TABLE `${project}.${silver}.fact_shipments` AS
 WITH latest AS (

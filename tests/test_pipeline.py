@@ -20,7 +20,7 @@ def test_window_covers_lookback_and_whole_day():
 
 def test_every_sql_file_renders_without_leftover_placeholders():
     paths = sorted(SQL_DIR.rglob("*.sql"))
-    assert paths, "Không thấy file SQL nào"
+    assert paths, "No SQL files found"
     for path in paths:
         sql = render_sql(path)
         assert "${" not in sql, path

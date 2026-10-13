@@ -1,6 +1,6 @@
-"""Chạy các câu kiểm tra trong sql/checks/. Mỗi file trả về 0 dòng nếu đạt, có dòng nếu lỗi.
+"""Run the checks in sql/checks/. Each file returns 0 rows when it passes and rows when it fails.
 
-Dùng: python -m pipeline.checks
+Usage: python -m pipeline.checks
 """
 
 import sys
@@ -17,11 +17,11 @@ def run_checks() -> bool:
         rows = list(client.query(render_sql(path)).result())
         if rows:
             ok = False
-            print(f"LỖI {path.name}:")
+            print(f"FAIL {path.name}:")
             for row in rows:
                 print("   ", dict(row))
         else:
-            print(f"ĐẠT {path.name}")
+            print(f"PASS {path.name}")
     return ok
 
 
