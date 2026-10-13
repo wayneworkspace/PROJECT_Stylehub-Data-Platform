@@ -6,11 +6,40 @@ Source (Postgres + API) → Raw Zone (GCS) → Bronze → Silver (fact/dim) → 
 Only the curriculum stack is used for now: Python, SQL, GCS, BigQuery, Airbyte.
 dbt, Airflow and Spark are later extensions: do not add them unless asked (see `docs/EXTENDING.md`).
 
-## General principles
-- Keep code simple and readable. Prefer clear over clever. No premature abstraction.
-- One file, one job. Short functions with names that say what they do.
-- Organize folders by layer: `ingestion/`, `sql/{bronze,silver,gold,checks}`, `pipeline/`.
-- Do not add features beyond what was asked. No speculative "just in case" code.
+## How to work (these rules come first)
+Rules to avoid common AI coding mistakes. They favor caution over speed. For a trivial task, use judgment.
+
+### 1. Think before coding
+- State your assumptions. If you are unsure, ask.
+- If a request has more than one reading, show the options. Do not pick one silently.
+- If a simpler way exists, say so and push back when it is right to.
+- If something is unclear, stop, name what is unclear and ask.
+
+### 2. Simplicity first
+- Write the minimum code that solves the problem. Nothing speculative.
+- No features beyond the request. No abstraction for code used once.
+- No "flexibility" or settings that nobody asked for.
+- No error handling for cases that cannot happen. (Best-effort recording and alerts are the exception: they must not crash the pipeline.)
+- If 200 lines could be 50, rewrite it. Ask: "Would a senior engineer call this overcomplicated?"
+- Keep code readable. Prefer clear over clever. One file, one job. Short functions with names that say what they do.
+
+### 3. Surgical changes
+- Touch only what you must. Every changed line must trace to the request.
+- Do not "improve" nearby code, comments or formatting. Do not refactor what is not broken.
+- Match the existing style, even if you would do it differently.
+- Remove imports, variables and functions that YOUR change made unused. If you see other dead code, mention it. Do not delete it.
+
+### 4. Goal-driven execution
+- Turn the task into a check you can run: "fix the bug" means write a test that fails, then make it pass. "Refactor" means tests pass before and after.
+- For a task with several steps, write a short plan, each step with how you will verify it:
+  1. Step -> verify: check
+  2. Step -> verify: check
+- "Make it work" is not a goal. Define success first, then loop until the check passes.
+
+These rules are working if diffs are smaller, there are fewer rewrites, and questions come before the work, not after a mistake.
+
+## Repo conventions
+- Organize folders by layer: `ingestion/`, `sql/{bronze,silver,gold,checks,ops}`, `pipeline/`.
 - Commit using Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`).
 
 ## Contract between layers (do not break, so extending never means rewriting)
@@ -51,3 +80,4 @@ dbt, Airflow and Spark are later extensions: do not add them unless asked (see `
 - `make lint` and `make test` must pass.
 - Run `uvx pre-commit run --all-files`.
 - Update the README/docs when behavior changes.
+- Read your own diff (`git diff`). Each changed line must trace to the request (rule 3).
