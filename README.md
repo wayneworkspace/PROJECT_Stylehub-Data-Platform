@@ -263,7 +263,6 @@ See [docs/DEVOPS.md](docs/DEVOPS.md) for what each CI job does.
 | `LOCAL_PG_PASSWORD` | Your shell (optional) | Password for the local Docker Postgres. Default `stylehub_local`. |
 | `BQ_OPS` | `.env` | Dataset for `pipeline_runs`. Default `stylehub_ops`. Create it before the first run. |
 | `ALERT_WEBHOOK_URL` | `.env` (optional) | Discord webhook for failure alerts. It is a secret. Leave it empty to turn alerts off. |
-| `GCP_REGION`, `STYLEHUB_API_KEY` | `.env` | Listed in `.env.example`, but no code reads them yet. |
 | Watermark column | `WATERMARK` in `ingestion/incremental.py` | One column per table. Both tables use `updated_at` for now. |
 | Lookback days | `LOOKBACK_DAYS` in `ingestion/incremental.py` | Default 1. |
 | Raw folder names | `RAW_DIR` in `pipeline/config.py` | Needed when a folder name differs from the table name. `products` uses `products_api`. |
