@@ -7,11 +7,12 @@ everything and Silver drops the duplicates.
 The watermark column of order_items must be chosen from real data: check whether
 updated_at of order_items changes when an order changes status (see docs/DECISIONS.md, section 2).
 
-Usage: python -m ingestion.incremental --table orders --date 2026-10-01
+Usage: python -m ingestion.incremental --table orders --date 2026-10-01 [--dry-run]
 """
 
 import argparse
 import os
+from contextlib import closing
 from datetime import date, datetime, timedelta
 
 import pandas as pd
@@ -52,13 +53,19 @@ def extract_day(table: str, data_date: date) -> pd.DataFrame:
     column = WATERMARK[table]
     start, end = window_for(data_date)
     query = f"SELECT * FROM {table} WHERE {column} >= %s AND {column} < %s"
-    with connect() as conn:
-        return pd.read_sql(query, conn, params=(start, end))
+    # closing() really closes the connection. psycopg2's own "with" only ends the transaction.
+    with closing(connect()) as conn, conn.cursor() as cur:
+        cur.execute(query, (start, end))
+        columns = [col.name for col in cur.description]
+        return pd.DataFrame(cur.fetchall(), columns=columns)
 
 
-def ingest_table(table: str, data_date: str) -> str:
+def ingest_table(table: str, data_date: str, dry_run: bool = False) -> str:
+    """Extract one day. With dry_run, only count the rows and write nothing to GCS."""
     load_dotenv()
     df = extract_day(table, date.fromisoformat(data_date))
+    if dry_run:
+        return f"{table} {data_date}: {len(df)} rows (dry run, nothing written)"
     uri = write_raw(df, table, data_date, source="postgres")
     return f"{table} {data_date}: {len(df)} rows -> {uri}"
 
@@ -67,8 +74,11 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--table", required=True, choices=INCREMENTAL_TABLES)
     parser.add_argument("--date", required=True, help="YYYY-MM-DD")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="read from Postgres but do not write to GCS"
+    )
     args = parser.parse_args()
-    print(ingest_table(args.table, args.date))
+    print(ingest_table(args.table, args.date, dry_run=args.dry_run))
 
 
 if __name__ == "__main__":

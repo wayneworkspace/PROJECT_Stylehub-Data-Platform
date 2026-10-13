@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# Cancel an older run when a new commit arrives on the same branch.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pre-commit:
+    name: Pre-commit checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.0
+      - name: Run all pre-commit hooks (ruff, gitleaks, file checks)
+        run: uvx pre-commit run --all-files --show-diff-on-failure
+
+  test:
+    name: Lint and tests
+    runs-on: ubuntu-latest
+    services:
+      # A throwaway Postgres for the integration tests. The password is for CI only.
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: stylehub
+          POSTGRES_PASSWORD: stylehub_local
+          POSTGRES_DB: stylehub
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U stylehub -d stylehub"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PG_HOST: localhost
+      PG_PORT: "5432"
+      PG_DATABASE: stylehub
+      PG_USER: stylehub
+      PG_PASSWORD: stylehub_local
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.0
+        with:
+          enable-cache: true
+      - name: Install dependencies from the lock file
+        run: uv sync --frozen --extra dev
+      - name: Lint
+        run: uv run ruff check .
+      - name: Unit tests
+        run: uv run pytest
+      - name: Load the sample data into Postgres
+        run: psql -h localhost -U stylehub -d stylehub -v ON_ERROR_STOP=1 -f docker/postgres/init/01_seed.sql
+        env:
+          PGPASSWORD: stylehub_local
+      - name: Integration tests
+        run: uv run pytest -m integration
+
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build the image
+        run: docker build -t stylehub-pipeline .
+      - name: The image starts
+        run: docker run --rm stylehub-pipeline python -m pipeline.run_daily --help
+      - name: The image does not run as root
+        run: test "$(docker run --rm stylehub-pipeline id -u)" != "0"

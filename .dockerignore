@@ -1,0 +1,20 @@
+.git
+.github
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+.idea
+
+# Never send secrets or data into the build context
+.env
+secrets
+assets
+logs
+*.json.key
+
+docs
+notebooks
+tests
+docker

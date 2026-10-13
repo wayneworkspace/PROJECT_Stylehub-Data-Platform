@@ -1,0 +1,27 @@
+# Checks that run before every commit. Set up once with:
+#   uvx pre-commit install
+# Run on every file by hand with:
+#   uvx pre-commit run --all-files
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-yaml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+      - id: detect-private-key
+      - id: end-of-file-fixer
+        exclude: ^(uv\.lock|assets/)
+      - id: trailing-whitespace
+        exclude: ^(uv\.lock|assets/)
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.0
+    hooks:
+      - id: ruff-check
+
+  # Stops you from committing keys, tokens and passwords.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks

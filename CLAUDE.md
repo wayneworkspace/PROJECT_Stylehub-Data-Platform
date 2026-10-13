@@ -38,6 +38,14 @@ dbt, Airflow and Spark are later extensions: do not add them unless asked (see `
 - Restrict the Airbyte VM firewall to your own IP, never `0.0.0.0/0`. Stop the VM when not in use.
 - The StyleHub dataset belongs to the course: publish only your own rebuilt code, not the instructor's materials or sample code.
 
+## DevOps
+- Docker, CI and pre-commit are in place (`docs/DEVOPS.md`). Do not add other tools unless asked.
+- Install packages with `uv` and keep `uv.lock` in sync (`uv lock` after you change `pyproject.toml`).
+- The Docker image must never contain secrets. Keep `.dockerignore` strict; pass secrets at run time (env vars or a read-only mount).
+- Integration tests need Postgres: `make up`, then `make test-integration`. If you change `docker/postgres/init/01_seed.sql`, update `tests/test_ingestion_integration.py` too.
+- CI actions and pre-commit hooks are pinned to versions. Check the real latest tag before you bump one.
+
 ## Before saying it is done
 - `make lint` and `make test` must pass.
+- Run `uvx pre-commit run --all-files`.
 - Update the README/docs when behavior changes.

@@ -10,9 +10,10 @@ A learning project that moves online shop data from Postgres into BigQuery. The 
 | **Data Storage** | <img src="assets/icon-gcs.png" alt="Google Cloud Storage" height="24" /> Google Cloud Storage  •  <img src="assets/icon-bigquery.png" alt="BigQuery" height="24" /> BigQuery  •  <img src="assets/icon-postgresql.png" alt="PostgreSQL" height="24" /> PostgreSQL (source)  •  <img src="assets/icon-parquet.png" alt="Apache Parquet" height="24" /> Parquet |
 | **Data Processing** | <img src="assets/icon-pandas.png" alt="pandas" height="24" /> pandas  •  <img src="assets/icon-arrow.png" alt="Apache Arrow" height="24" /> PyArrow |
 | **Tooling** | <img src="assets/icon-uv.png" alt="uv" height="24" /> uv  •  <img src="assets/icon-make.png" alt="GNU Make" height="24" /> Make  •  Ruff  •  <img src="assets/icon-pytest.png" alt="pytest" height="24" /> pytest |
+| **DevOps** | <img src="assets/icon-docker.png" alt="Docker" height="24" /> Docker and Docker Compose  •  <img src="assets/icon-githubactions.png" alt="GitHub Actions" height="24" /> GitHub Actions  •  pre-commit  •  gitleaks |
 
 > [!NOTE]
-> This is a personal project built while following a 5-session data engineering course. The Python tests pass. The SQL has **not** run on a real BigQuery project yet. See [Troubleshooting & Limitations](#troubleshooting--limitations).
+> This is a personal project built while following a 5-session data engineering course. The Python tests pass, including tests against a real Postgres. The SQL has **not** run on a real BigQuery project yet. See [Troubleshooting & Limitations](#troubleshooting--limitations).
 
 ## Overview
 
@@ -85,10 +86,16 @@ flowchart LR
 
 ```
 .
+├── .github/
+│   ├── workflows/ci.yml     # Checks that run on every pull request
+│   └── pull_request_template.md
 ├── assets/                  # Icons used in this README
+├── docker/
+│   └── postgres/init/       # Sample data for the local Postgres
 ├── docs/
 │   ├── ARCHITECTURE.md      # Layers, star schema, Airbyte sync modes
 │   ├── DECISIONS.md         # Design choices and measurements
+│   ├── DEVOPS.md            # CI, Docker, pre-commit and what comes next
 │   ├── EXTENDING.md         # How to add dbt, Airflow and Spark later
 │   └── ROADMAP.md           # Plan by course session
 ├── ingestion/
@@ -106,13 +113,18 @@ flowchart LR
 │   ├── silver/              # Facts and dimensions
 │   ├── gold/                # Business tables
 │   └── checks/              # Quality checks
-├── tests/                   # Unit tests
+├── tests/                   # Unit tests and integration tests
+├── .dockerignore
 ├── .env.example             # Names of the settings. Copy to .env.
 ├── .gitignore
+├── .pre-commit-config.yaml  # Checks that run before each commit
 ├── CLAUDE.md                # Rules for AI assistants and contributors
+├── Dockerfile               # Image for the pipeline
+├── docker-compose.yml       # Local Postgres with sample data
 ├── Makefile                 # Short commands
 ├── pyproject.toml           # Dependencies and tool settings
-└── README.md
+├── README.md
+└── uv.lock                  # Exact package versions
 ```
 
 > [!TIP]
@@ -131,6 +143,7 @@ flowchart LR
 | Three BigQuery datasets | `stylehub_bronze`, `stylehub_silver`, `stylehub_gold`. Use the same location as the bucket. |
 | Service account key (JSON) | Save it in `secrets/`. Give the account BigQuery Job User, BigQuery Data Editor and Storage Object Admin. |
 | Read-only Postgres access | Host, database, user and password come from the course. |
+| Docker Desktop (optional) | For the local Postgres and the image. You can try ingestion without any cloud account. |
 | Make (optional) | Not installed on Windows by default. Every command below also works without it. |
 
 > [!IMPORTANT]
@@ -147,6 +160,29 @@ uv run pytest
 ```
 
 Open `.env` and fill in your values. See [Configuration](#configuration).
+
+### Try it with Docker (no cloud needed)
+
+The local Postgres holds a small set of sample orders. You can test the extraction step with it. Nothing is written to GCS.
+
+```powershell
+docker compose up -d postgres
+docker compose run --rm pipeline python -m ingestion.incremental --table orders --date 2026-10-01 --dry-run
+```
+
+The second command should print `orders 2026-10-01: 24 rows (dry run, nothing written)`. To run the integration tests against the same database:
+
+```powershell
+$env:PG_HOST = "localhost"; $env:PG_PORT = "5432"; $env:PG_DATABASE = "stylehub"
+$env:PG_USER = "stylehub"; $env:PG_PASSWORD = "stylehub_local"
+uv run pytest -m integration
+docker compose down -v
+```
+
+To build the image alone, run `docker build -t stylehub-pipeline .`
+
+> [!NOTE]
+> The password `stylehub_local` is for this throwaway local database only. The port is open to your own computer and no one else.
 
 ### First run
 
@@ -195,6 +231,17 @@ make check
 | Start at a later step | Add `--from-step silver` (steps: ingest, bronze, silver, gold, checks). |
 | On a schedule | This repo has no scheduler. Call `run_daily` from Windows Task Scheduler or cron. Airflow is a later option (see [docs/EXTENDING.md](docs/EXTENDING.md)). |
 
+### Checks before you commit
+
+| Check | How | When it runs |
+|---|---|---|
+| Pre-commit hooks (ruff, gitleaks, file checks) | Run `uvx pre-commit install` once. | On every `git commit` |
+| Unit tests | `uv run pytest` | You run them before you push |
+| Integration tests | `uv run pytest -m integration` (needs the Docker Postgres) | You run them before you push |
+| CI on GitHub | Same checks, plus a Docker build | On every pull request |
+
+See [docs/DEVOPS.md](docs/DEVOPS.md) for what each CI job does.
+
 ## Configuration
 
 | Item | Where | Notes |
@@ -206,6 +253,7 @@ make check
 | `BQ_SOURCE` | `.env` | Dataset with the course's original tables, such as `events`. Default `stylehub`. |
 | `BQ_BRONZE`, `BQ_SILVER`, `BQ_GOLD` | `.env` | Dataset names. Defaults `stylehub_bronze`, `stylehub_silver`, `stylehub_gold`. |
 | `PG_HOST`, `PG_PORT`, `PG_DATABASE`, `PG_USER`, `PG_PASSWORD` | `.env` | Read-only Postgres source. Never commit the password. |
+| `LOCAL_PG_PASSWORD` | Your shell (optional) | Password for the local Docker Postgres. Default `stylehub_local`. |
 | `GCP_REGION`, `STYLEHUB_API_KEY` | `.env` | Listed in `.env.example`, but no code reads them yet. |
 | Watermark column | `WATERMARK` in `ingestion/incremental.py` | One column per table. Both tables use `updated_at` for now. |
 | Lookback days | `LOOKBACK_DAYS` in `ingestion/incremental.py` | Default 1. |
@@ -227,21 +275,27 @@ make check
 | "Unrecognized name" in a Silver query | The SQL used a guessed column name. Check the real columns in `INFORMATION_SCHEMA.COLUMNS` and edit the SQL file. |
 | Bronze row count grows after a re-run | This is by design. Silver removes the duplicates. |
 | `make` is not found on Windows | Use the `uv run` commands. |
+| `pytest` says tests were "deselected" | Integration tests are off by default. Start the Docker Postgres and add `-m integration`. |
+| `docker compose up` says port 5432 is in use | Another Postgres runs on your computer. Stop it, or change the port in `docker-compose.yml`. |
+| A commit fails and files changed | A pre-commit hook fixed them, for example trailing spaces. Run `git add` again and commit again. |
+| A commit is blocked by gitleaks | It found something that looks like a key. Remove the secret first. If it was a real key, rotate it. |
 
 ### Limitations
 
 | Area | Limitation |
 |---|---|
-| Testing | Unit tests cover paths, date windows and SQL placeholders only. The SQL has never run on real BigQuery data. |
+| Testing | Unit tests cover paths, date windows and SQL placeholders. Integration tests cover extraction from a sample Postgres. The SQL has never run on real BigQuery data. |
 | Schema | Column names for `users` and `shipments` come from course slides, not from the real schema. |
 | Sources | Python ingestion covers `orders` and `order_items` only. `products` (API), `users` and `shipments` need Airbyte or a manual upload. |
 | Watermark | `order_items` uses `updated_at` without a check on real data. See `docs/DECISIONS.md`. |
 | Deletes | The pipeline cannot see rows that the source deletes. |
 | Scheduling | No scheduler, no retries and no alerts. |
+| Logging | Steps use `print`. There are no log levels and no run history yet. |
+| Docker | CI builds the image, but it is not pushed to a registry or run on a server yet. |
 | Rebuilds | Silver and Gold use `CREATE OR REPLACE TABLE`. Each run rebuilds the whole table. |
 | Events | `events` is only partitioned. There is no `fact_events` or `dim_date` yet. |
 | Backups | None. |
-| Dependencies | Versions in `pyproject.toml` are minimums, and no lock file is committed. |
+| Dependencies | `uv.lock` pins exact versions. Update them on purpose with `uv lock --upgrade`. |
 | Scale | A learning project that uses a course dataset. Do not use it for real business reports. |
 
 ## Roadmap
@@ -252,4 +306,7 @@ make check
 - [ ] Add `fact_events` and `dim_date`
 - [ ] Add daily sample data so the pipeline runs on new rows
 - [ ] Add an architecture diagram image
+- [ ] Add logging, a run history table and failure alerts
+- [ ] Run the pipeline on a small GCP VM with cron or a systemd timer
+- [ ] Describe the bucket, datasets and service accounts in Terraform
 - [ ] Add dbt, Airflow and Spark (see [docs/EXTENDING.md](docs/EXTENDING.md))
