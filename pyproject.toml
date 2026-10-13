@@ -1,0 +1,26 @@
+[project]
+name = "stylehub-data-platform"
+version = "0.1.0"
+description = "Data platform trên GCP cho dataset StyleHub, xây theo giáo trình 5 buổi"
+requires-python = ">=3.11"
+dependencies = [
+    "google-cloud-bigquery>=3.25",
+    "google-cloud-storage>=2.18",
+    "pandas>=2.2",
+    "pyarrow>=16",
+    "psycopg2-binary>=2.9",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
