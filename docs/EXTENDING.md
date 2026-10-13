@@ -1,27 +1,27 @@
-# Mở rộng sau này
+# Extending later
 
-Repo được chia để thêm công cụ mới mà không viết lại. Phần giữ nguyên là **hợp đồng**: tên dataset (`stylehub_bronze`, `stylehub_silver`, `stylehub_gold`), tên bảng và grain từng bảng, đường dẫn Raw Zone.
+The repo is split so new tools can be added without rewriting. What stays fixed is the **contract**: dataset names (`stylehub_bronze`, `stylehub_silver`, `stylehub_gold`), table names and the grain of each table, and the Raw Zone paths.
 
-## dbt (thay `sql/silver`, `sql/gold`, `sql/checks`)
+## dbt (replaces `sql/silver`, `sql/gold`, `sql/checks`)
 
-1. Tạo thư mục `dbt/`. Khai báo `sources` trỏ vào `stylehub_bronze`.
-2. Mỗi file `sql/silver/NN_ten.sql` thành một model `models/silver/ten.sql`: bỏ dòng `CREATE OR REPLACE TABLE`, giữ phần `SELECT`, đổi `` `${project}.${bronze}.x` `` thành `{{ source('bronze', 'x') }}` và `` `${project}.${silver}.x` `` thành `{{ ref('x') }}`. Thứ tự `01_`, `02_` không còn cần vì dbt tự suy ra từ `ref`.
-3. Mỗi file `sql/checks/` thành test: check grain thành `unique` + `not_null`, các check còn lại thành singular test (cùng cấu trúc "trả về dòng nếu lỗi").
-4. Xóa `make silver`, `make gold`, `make check` và thay bằng `dbt build`. `ingestion/` và `load_bronze` không đổi.
+1. Create a `dbt/` folder. Declare `sources` pointing at `stylehub_bronze`.
+2. Each `sql/silver/NN_name.sql` becomes a model `models/silver/name.sql`: drop the `CREATE OR REPLACE TABLE` line, keep the `SELECT`, replace `` `${project}.${bronze}.x` `` with `{{ source('bronze', 'x') }}` and `` `${project}.${silver}.x` `` with `{{ ref('x') }}`. The `01_`, `02_` ordering is no longer needed because dbt derives order from `ref`.
+3. Each file in `sql/checks/` becomes a test: grain checks become `unique` + `not_null`, the rest become singular tests (same shape: "return rows if broken").
+4. Remove `make silver`, `make gold` and `make check` in favor of `dbt build`. `ingestion/` and `load_bronze` do not change.
 
-## Airflow (thay `pipeline/run_daily.py`)
+## Airflow (replaces `pipeline/run_daily.py`)
 
-1. `STEPS` trong `run_daily.py` đã là danh sách bước: ingest → bronze → silver → gold → checks. Mỗi bước thành một task.
-2. Task gọi đúng các CLI hiện có (`python -m ingestion.incremental --date {{ ds }}`, `python -m pipeline.load_bronze --date {{ ds }}`...). Không cần sửa logic bên trong.
-3. Retry và cảnh báo cấu hình ở Airflow, không viết trong code Python.
-4. Nếu đã dùng dbt thì task silver/gold/checks gộp thành `dbt build`.
+1. `STEPS` in `run_daily.py` is already the list of steps: ingest → bronze → silver → gold → checks. Each step becomes a task.
+2. Tasks call the existing CLIs (`python -m ingestion.incremental --date {{ ds }}`, `python -m pipeline.load_bronze --date {{ ds }}`, ...). No logic inside needs to change.
+3. Retries and alerts are configured in Airflow, not written in Python code.
+4. If dbt is already in use, the silver/gold/checks tasks merge into one `dbt build`.
 
-## Spark (cho xử lý lớn, ví dụ `events`)
+## Spark (for heavy processing, for example `events`)
 
-1. Thêm `spark/`. Đọc Parquet từ Raw Zone (cùng đường dẫn `raw/stylehub/events/...`), ghi kết quả thành bảng ở Silver hoặc Gold.
-2. Chạy trên Dataproc. Giữ nguyên tên bảng đầu ra để các tầng sau không đổi.
-3. Chỉ chuyển sang Spark khi SQL trên BigQuery không còn phù hợp (xử lý phức tạp, chi phí quét lớn). Ghi số đo trước và sau vào `docs/DECISIONS.md`.
+1. Add `spark/`. Read Parquet from the Raw Zone (same `raw/stylehub/events/...` path) and write the result as a table in Silver or Gold.
+2. Run on Dataproc. Keep the output table names unchanged so downstream layers are unaffected.
+3. Move to Spark only when SQL on BigQuery stops being a good fit (complex processing, large scan cost). Record before and after measurements in `docs/DECISIONS.md`.
 
-## Thay Python ingestion bằng Airbyte
+## Replacing Python ingestion with Airbyte
 
-`ingestion/` và Airbyte cùng ghi vào Raw Zone/Bronze. Đổi nguồn cho một bảng bằng cách tắt bước ingest của bảng đó trong `run_daily.py`. Nếu Airbyte nạp thẳng Bronze thì đổi `_ingested_at` thành `_airbyte_extracted_at` trong `sql/silver/`.
+`ingestion/` and Airbyte both write to the Raw Zone/Bronze. Switch the source of a table by disabling that table's ingest step in `run_daily.py`. If Airbyte loads Bronze directly, change `_ingested_at` to `_airbyte_extracted_at` in `sql/silver/`.

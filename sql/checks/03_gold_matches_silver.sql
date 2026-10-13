@@ -1,4 +1,4 @@
--- Tổng revenue ở Gold phải bằng tổng total_amount (không Cancelled) ở Silver.
+-- Total revenue in Gold must equal the total total_amount (excluding Cancelled) in Silver.
 
 WITH gold AS (
   SELECT SUM(revenue) AS total

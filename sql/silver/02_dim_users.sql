@@ -1,5 +1,5 @@
--- Grain: một dòng là một khách hàng. Gom mọi thông tin của khách (Buổi 5, Bài tập 2).
--- Kiểm tra tên cột với schema thật trước khi chạy.
+-- Grain: one row per customer. Gathers everything about a customer (session 5, exercise 2).
+-- Check the column names against the real schema before running.
 
 CREATE OR REPLACE TABLE `${project}.${silver}.dim_users` AS
 WITH latest AS (

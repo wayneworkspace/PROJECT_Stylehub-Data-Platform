@@ -1,4 +1,4 @@
--- amount do nguồn tự tính từ sale_price * quantity, số dòng lệch phải bằng 0 (Buổi 3).
+-- The source computes amount as sale_price * quantity, so the mismatched row count must be 0 (session 3).
 
 WITH mismatched AS (
   SELECT COUNT(*) AS n_mismatched

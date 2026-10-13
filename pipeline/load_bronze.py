@@ -1,9 +1,9 @@
-"""Nạp file Raw của một ngày vào Bronze. Chỉ thêm dòng (append), không ghi đè.
+"""Load the Raw files of one day into Bronze. Append only, never overwrite.
 
-Chạy lại cùng một ngày sẽ thêm dòng trùng vào Bronze. Đó là chủ ý: Bronze giữ mọi lần ingest,
-Silver bỏ trùng.
+Re-running the same day adds duplicate rows to Bronze. That is intentional: Bronze keeps every
+ingest and Silver removes the duplicates.
 
-Dùng: python -m pipeline.load_bronze --date 2026-10-01 [--table orders]
+Usage: python -m pipeline.load_bronze --date 2026-10-01 [--table orders]
 """
 
 import argparse
@@ -38,7 +38,7 @@ def main() -> None:
     args = parser.parse_args()
 
     for table in [args.table] if args.table else TABLES:
-        print(f"{table} {args.date}: {load_day(table, args.date)} dòng -> Bronze")
+        print(f"{table} {args.date}: {load_day(table, args.date)} rows -> Bronze")
 
 
 if __name__ == "__main__":

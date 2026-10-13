@@ -1,43 +1,43 @@
-# CLAUDE.md — quy tắc cho AI khi viết code trong repo này
+# CLAUDE.md — rules for AI when writing code in this repo
 
-## Dự án
-StyleHub Data Platform trên GCP, xây theo giáo trình 5 buổi.
+## Project
+StyleHub Data Platform on GCP, built following a 5-session curriculum.
 Source (Postgres + API) → Raw Zone (GCS) → Bronze → Silver (fact/dim) → Gold (BigQuery).
-Hiện chỉ dùng stack của giáo trình: Python, SQL, GCS, BigQuery, Airbyte.
-dbt, Airflow, Spark là bước mở rộng sau: không thêm vào trừ khi được yêu cầu (xem `docs/EXTENDING.md`).
+Only the curriculum stack is used for now: Python, SQL, GCS, BigQuery, Airbyte.
+dbt, Airflow and Spark are later extensions: do not add them unless asked (see `docs/EXTENDING.md`).
 
-## Nguyên tắc chung
-- Code đơn giản, dễ đọc. Ưu tiên rõ ràng hơn thông minh. Không trừu tượng hóa sớm.
-- Một file một nhiệm vụ. Hàm ngắn, tên mô tả đúng việc nó làm.
-- Chia thư mục theo tầng: `ingestion/`, `sql/{bronze,silver,gold,checks}`, `pipeline/`.
-- Không thêm tính năng ngoài yêu cầu. Không viết code "phòng hờ" chưa cần.
-- Commit theo Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`).
+## General principles
+- Keep code simple and readable. Prefer clear over clever. No premature abstraction.
+- One file, one job. Short functions with names that say what they do.
+- Organize folders by layer: `ingestion/`, `sql/{bronze,silver,gold,checks}`, `pipeline/`.
+- Do not add features beyond what was asked. No speculative "just in case" code.
+- Commit using Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`).
 
-## Hợp đồng giữa các tầng (không phá, để mở rộng không phải viết lại)
-- Mỗi bước chạy được độc lập bằng CLI có `--date`, và an toàn khi chạy lại.
-- Tên dataset và grain của từng bảng là hợp đồng. Đổi grain thì phải cập nhật `docs/ARCHITECTURE.md`.
-- Logic nghiệp vụ nằm trong file SQL, không nằm trong code Python.
-- Cấu hình chỉ đọc từ `pipeline/config.py` (biến môi trường), không rải hằng số khắp nơi.
+## Contract between layers (do not break, so extending never means rewriting)
+- Every step runs on its own as a CLI with `--date` and is safe to re-run.
+- Dataset names and the grain of each table are the contract. If a grain changes, update `docs/ARCHITECTURE.md`.
+- Business logic lives in SQL files, not in Python code.
+- Configuration is read only from `pipeline/config.py` (environment variables), not scattered constants.
 
 ## Ingestion
-- Ingestion chỉ có MỘT nhiệm vụ: extract và ghi raw. Không transform, không làm sạch.
-- Raw Zone chỉ thêm file, không ghi đè: `raw/stylehub/<bảng>/date=<YYYY-MM-DD>/batch_id=<id>/<bảng>.parquet`.
-- Mọi file raw có 3 cột metadata: `_ingested_at`, `_source`, `_batch_id`.
-- Chạy lại phải an toàn: cùng đầu vào thì số id khác nhau không đổi.
+- Ingestion has ONE job: extract and write raw data. No transforming, no cleaning.
+- The Raw Zone is append-only, never overwritten: `raw/stylehub/<table>/date=<YYYY-MM-DD>/batch_id=<id>/<table>.parquet`.
+- Every raw file carries 3 metadata columns: `_ingested_at`, `_source`, `_batch_id`.
+- Re-runs must be safe: same input, same number of distinct ids.
 
 ## SQL
-- Viết bằng CTE. Không dùng subquery.
-- File đặt tên có số thứ tự (`01_`, `02_`) theo thứ tự phụ thuộc. Dùng `${project}`, `${bronze}`, `${silver}`, `${gold}`.
-- Bronze: chỉ thêm dòng, giữ mọi phiên bản. Silver: mỗi id một dòng mới nhất, ép đúng kiểu, ghi grain ở đầu file.
-- Gold: chứa rule nghiệp vụ (ví dụ bỏ đơn `Cancelled`). Rule đổi thì sửa Gold, Silver giữ nguyên.
-- Mỗi bảng Silver có check grain trong `sql/checks/`. Gold có check đối chiếu tổng với Silver.
-- Bảng lớn (events) phải có `PARTITION BY` và `CLUSTER BY`; ghi lý do và số đo vào `docs/DECISIONS.md`.
+- Write with CTEs. No subqueries.
+- Number files by dependency order (`01_`, `02_`). Use `${project}`, `${bronze}`, `${silver}`, `${gold}`.
+- Bronze: append rows only, keep every version. Silver: one latest row per id, cast types correctly, state the grain at the top of the file.
+- Gold: holds business rules (for example, exclude `Cancelled` orders). When a rule changes, edit Gold and leave Silver alone.
+- Every Silver table has a grain check in `sql/checks/`. Gold has a check that reconciles its totals with Silver.
+- Large tables (events) must have `PARTITION BY` and `CLUSTER BY`; record the reasoning and measurements in `docs/DECISIONS.md`.
 
-## Bảo mật
-- Không commit: `secrets/`, `.env`, key JSON của GCP, HMAC key, mật khẩu DB, dữ liệu CSV thô.
-- Firewall VM Airbyte giới hạn theo IP của mình, không mở `0.0.0.0/0`. Tắt VM khi không dùng.
-- Dataset StyleHub là của khóa học: chỉ đưa lên GitHub phần tự dựng lại, không đưa tài liệu hay code mẫu của giảng viên.
+## Security
+- Never commit: `secrets/`, `.env`, GCP key JSON, HMAC keys, database passwords, raw CSV data.
+- Restrict the Airbyte VM firewall to your own IP, never `0.0.0.0/0`. Stop the VM when not in use.
+- The StyleHub dataset belongs to the course: publish only your own rebuilt code, not the instructor's materials or sample code.
 
-## Trước khi báo xong
-- `make lint` và `make test` phải qua.
-- Cập nhật README/docs nếu đổi hành vi.
+## Before saying it is done
+- `make lint` and `make test` must pass.
+- Update the README/docs when behavior changes.

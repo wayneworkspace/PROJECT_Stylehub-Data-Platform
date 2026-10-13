@@ -1,7 +1,7 @@
 [project]
 name = "stylehub-data-platform"
 version = "0.1.0"
-description = "Data platform trên GCP cho dataset StyleHub, xây theo giáo trình 5 buổi"
+description = "Data platform on GCP for the StyleHub dataset, built following a 5-session curriculum"
 requires-python = ">=3.11"
 dependencies = [
     "google-cloud-bigquery>=3.25",
