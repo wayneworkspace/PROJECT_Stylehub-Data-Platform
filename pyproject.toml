@@ -15,15 +15,25 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.6"]
 
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+# Python packages live in src/python. This lets `python -m pipeline...` work from any folder.
+packages = ["src/python/pipeline", "src/python/ingestion"]
+
 [tool.ruff]
 line-length = 100
+# Tell ruff where the first-party packages live, so import sorting works.
+src = ["src/python", "src"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
-pythonpath = ["."]
+testpaths = ["src/tests"]
+pythonpath = ["src/python", "src"]
 # Integration tests need a real Postgres. Run them on purpose with: pytest -m integration
 addopts = "-m 'not integration'"
 markers = ["integration: needs a running Postgres (see docker-compose.yaml)"]

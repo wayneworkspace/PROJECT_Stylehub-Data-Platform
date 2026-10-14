@@ -12,8 +12,8 @@ This page explains the DevOps parts of the repo and what to add next.
 | CI | `.github/workflows/ci.yaml` | Runs the same checks on each push to `main`, and also the tests and a Docker build. |
 | CD | `.github/workflows/cd.yaml`, `docs/CD.md` | After CI passes on `main`, builds the image and pushes it to Artifact Registry. The VM pulls it. No SSH into the VM. |
 | Locked packages | `uv.lock` | Keeps local, Docker and CI runs on the same package versions. |
-| Logs and run history | `pipeline/run_daily.py`, `pipeline/runs.py`, `sql/ops/` | Logs each step and saves one row per step in `stylehub_ops.pipeline_runs`. |
-| Failure alerts | `pipeline/alerts.py` | Sends a Discord message when a step fails. Off when `ALERT_WEBHOOK_URL` is empty. |
+| Logs and run history | `src/python/pipeline/run_daily.py`, `src/python/pipeline/runs.py`, `src/sql/ops/` | Logs each step and saves one row per step in `stylehub_ops.pipeline_runs`. |
+| Failure alerts | `src/python/pipeline/alerts.py` | Sends a Discord message when a step fails. Off when `ALERT_WEBHOOK_URL` is empty. |
 | VM jobs | `deploy/`, `docs/DEPLOY_VM.md` | A script and systemd timers. Two jobs, each with its own service account. |
 
 ## CI jobs
@@ -30,7 +30,7 @@ CI does not call Google Cloud. It has no keys, so the BigQuery and GCS steps are
 
 `docker/postgres/init/01_seed.sql` is fixed on purpose, so tests can count on it. For the date 2026-10-01, the lookback window returns 24 orders and 46 order items. Order 100 tests a late update. Order 101 is too old and must stay out.
 
-If you change this file, update `tests/test_ingestion_integration.py` too.
+If you change this file, update `src/tests/test_ingestion_integration.py` too.
 
 ## Next steps
 

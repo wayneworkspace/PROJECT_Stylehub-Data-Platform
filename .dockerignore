@@ -14,7 +14,10 @@ assets
 logs
 *.json.key
 
+# Course data can be many GB. Keep it out of the build context.
+data
+
 docs
 notebooks
-tests
+src/tests
 docker

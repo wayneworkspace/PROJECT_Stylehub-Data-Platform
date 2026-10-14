@@ -7,12 +7,26 @@ from string import Template
 
 from dotenv import load_dotenv
 
-ROOT = Path(__file__).resolve().parents[1]
-SQL_DIR = ROOT / "sql"
+ROOT = Path(__file__).resolve().parents[3]
+SQL_DIR = ROOT / "src" / "sql"
+# All settings and secrets live in one file that Git ignores. Copy .env.example to this path.
+ENV_FILE = ROOT / "secrets" / ".env"
 
 # Raw folder name per table when it differs from the table name
 # (session 2: products come from the API).
 RAW_DIR = {"products": "products_api"}
+
+
+def load_env() -> None:
+    """Read secrets/.env into the environment. Variables that are already set are kept.
+
+    A relative GOOGLE_APPLICATION_CREDENTIALS (for example secrets/key.json) is counted from the
+    project folder, so the pipeline works from any folder you start it in.
+    """
+    load_dotenv(ENV_FILE)
+    key_file = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+    if key_file and not Path(key_file).is_absolute():
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(ROOT / key_file)
 
 
 @dataclass(frozen=True)
@@ -27,11 +41,12 @@ class Settings:
     silver: str
     gold: str
     ops: str  # dataset of the pipeline_runs table
+    location: str  # where new buckets and datasets are created
 
 
 def settings() -> Settings:
     """Read the settings. GCP_PROJECT_ID and GCS_BUCKET are required, the rest have defaults."""
-    load_dotenv(ROOT / ".env")
+    load_env()
     return Settings(
         project=os.environ["GCP_PROJECT_ID"],
         bucket=os.environ["GCS_BUCKET"],
@@ -41,6 +56,7 @@ def settings() -> Settings:
         silver=os.environ.get("BQ_SILVER", "stylehub_silver"),
         gold=os.environ.get("BQ_GOLD", "stylehub_gold"),
         ops=os.environ.get("BQ_OPS", "stylehub_ops"),
+        location=os.environ.get("GCP_LOCATION", "asia-southeast1"),
     )
 
 

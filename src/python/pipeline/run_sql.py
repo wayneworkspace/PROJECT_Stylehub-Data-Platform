@@ -21,7 +21,7 @@ def run_layer(layer: str, dry_run: bool = False, only_file: str | None = None) -
     if only_file:
         paths = [p for p in paths if p.name == only_file]
         if not paths:
-            raise SystemExit(f"{only_file} not found in sql/{layer}/")
+            raise SystemExit(f"{only_file} not found in src/sql/{layer}/")
 
     for path in paths:
         config = bigquery.QueryJobConfig(dry_run=dry_run, use_query_cache=False)

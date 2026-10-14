@@ -1,5 +1,5 @@
 -- Small, fixed sample data for local runs and CI. This is NOT the course dataset.
--- Column names match what sql/silver/ expects for orders and order_items.
+-- Column names match what src/sql/silver/ expects for orders and order_items.
 --
 -- What the data contains (so tests can count on it):
 --   orders 1..30     created every 2 hours, starting 2026-09-30 02:00

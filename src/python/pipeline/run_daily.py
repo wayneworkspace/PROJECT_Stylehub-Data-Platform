@@ -92,6 +92,18 @@ def run_step(
     log.info("[run %s] step %s done in %.1fs", run_id, name, (finished - started).total_seconds())
 
 
+def new_run_id() -> str:
+    return datetime.now(UTC).strftime("%Y%m%dT%H%M%S") + "-" + uuid.uuid4().hex[:6]
+
+
+def run_steps(data_date: str, first_step: str, last_step: str) -> None:
+    """Run the steps from first_step to last_step (both included) for one data date."""
+    names = [name for name, _ in STEPS]
+    run_id = new_run_id()
+    for name, func in STEPS[names.index(first_step) : names.index(last_step) + 1]:
+        run_step(run_id, name, func, data_date)
+
+
 def setup_logging() -> None:
     logging.basicConfig(
         stream=sys.stdout,
@@ -112,9 +124,7 @@ def main() -> None:
         parser.error("--from-step must come before --to-step")
 
     setup_logging()
-    run_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%S") + "-" + uuid.uuid4().hex[:6]
-    for name, func in STEPS[first : last + 1]:
-        run_step(run_id, name, func, args.date)
+    run_steps(args.date, args.from_step, args.to_step)
 
 
 if __name__ == "__main__":

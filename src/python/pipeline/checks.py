@@ -1,4 +1,6 @@
-"""Run the checks in sql/checks/. Each file returns 0 rows when it passes and rows when it fails.
+"""Run the checks in src/sql/checks/.
+
+Each file returns 0 rows when it passes and rows when it fails.
 
 Usage: python -m pipeline.checks
 """

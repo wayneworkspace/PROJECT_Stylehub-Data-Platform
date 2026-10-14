@@ -15,15 +15,15 @@ RUN pip install --no-cache-dir uv
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
-COPY ingestion ./ingestion
-COPY pipeline ./pipeline
-COPY sql ./sql
+COPY src/python ./src/python
+COPY src/sql ./src/sql
 
 # Do not run as root.
 RUN useradd --create-home app && chown -R app /app
 USER app
 
-ENV PATH="/app/.venv/bin:$PATH"
+ENV PATH="/app/.venv/bin:$PATH" \
+    PYTHONPATH="/app/src/python"
 
 # Secrets are never baked into the image. Pass them as environment variables or mount a key file.
 CMD ["python", "-m", "pipeline.run_daily", "--help"]

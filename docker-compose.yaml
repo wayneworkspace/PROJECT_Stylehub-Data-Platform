@@ -29,10 +29,10 @@ services:
     build: .
     profiles: ["pipeline"]
     env_file:
-      - path: .env
+      - path: secrets/.env
         required: false
     environment:
-      # Point ingestion at the local Postgres, whatever .env says.
+      # Point ingestion at the local Postgres, whatever secrets/.env says.
       PG_HOST: postgres
       PG_PORT: "5432"
       PG_DATABASE: stylehub

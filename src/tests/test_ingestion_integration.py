@@ -9,7 +9,7 @@ from datetime import date
 
 import pytest
 
-from ingestion.incremental import extract_day, ingest_table
+from ingestion.incremental import extract_day, extract_full, ingest_table
 
 pytestmark = pytest.mark.integration
 
@@ -33,6 +33,17 @@ def test_order_items_window():
 def test_amount_matches_price_times_quantity():
     df = extract_day("order_items", date(2026, 10, 1))
     assert (df["amount"] == df["sale_price"] * df["quantity"]).all()
+
+
+def test_full_load_returns_every_row():
+    df = extract_full("orders")
+    assert set(df["id"]) == set(range(1, 31)) | {100, 101}
+
+
+def test_seed_data_passes_the_schema_check():
+    for table in ("orders", "order_items"):
+        message = ingest_table(table, "2026-10-01", dry_run=True)  # raises if the schema is off
+        assert "dry run" in message
 
 
 def test_dry_run_writes_nothing(monkeypatch):

@@ -1,4 +1,4 @@
-.PHONY: setup lint test test-integration up down docker-build ingest bronze silver gold check daily
+.PHONY: setup lint test test-integration up down docker-build setup-gcp load-csv ingest full-load backfill bronze silver gold check daily
 
 # Usage: make bronze DATE=2026-10-01
 DATE ?= $(shell date +%F)
@@ -26,9 +26,25 @@ down:
 docker-build:
 	docker build -t stylehub-pipeline .
 
+# Session 1: create the bucket and datasets, then load the course CSV files
+setup-gcp:
+	uv run python -m pipeline.setup_gcp
+
+load-csv:
+	uv run python -m pipeline.load_csv
+
 ingest:
 	uv run python -m ingestion.incremental --table orders --date $(DATE)
 	uv run python -m ingestion.incremental --table order_items --date $(DATE)
+
+# Whole tables, not one day. Stored under DATE.
+full-load:
+	uv run python -m ingestion.incremental --table orders --date $(DATE) --full-load
+	uv run python -m ingestion.incremental --table order_items --date $(DATE) --full-load
+
+# Usage: make backfill FROM=2026-09-25 TO=2026-10-01
+backfill:
+	uv run python -m pipeline.backfill --from-date $(FROM) --to-date $(TO)
 
 bronze:
 	uv run python -m pipeline.load_bronze --date $(DATE)

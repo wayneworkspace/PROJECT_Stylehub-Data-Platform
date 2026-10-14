@@ -45,7 +45,7 @@ These rules are working if diffs are smaller, there are fewer rewrites, and ques
 - Keep each change small and say how to check it.
 
 ## Repo conventions
-- Organize folders by layer: `ingestion/`, `sql/{bronze,silver,gold,checks,ops}`, `pipeline/`.
+- Organize folders by layer: `src/python/ingestion/`, `src/sql/{bronze,silver,gold,checks,ops}`, `src/python/pipeline/`.
 - Commit using Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`).
 - Name YAML files with the `.yaml` extension, never `.yml` (for example `ci.yaml`, `docker-compose.yaml`, Airbyte `values.yaml`).
 
@@ -53,7 +53,7 @@ These rules are working if diffs are smaller, there are fewer rewrites, and ques
 - Every step runs on its own as a CLI with `--date` and is safe to re-run.
 - Dataset names and the grain of each table are the contract. If a grain changes, update `docs/ARCHITECTURE.md`.
 - Business logic lives in SQL files, not in Python code.
-- Configuration is read only from `pipeline/config.py` (environment variables), not scattered constants.
+- Configuration is read only from `src/python/pipeline/config.py` (environment variables), not scattered constants. The settings file is `secrets/.env` (copy `.env.example` there). Never read `.env` anywhere else.
 
 ## Ingestion
 - Ingestion has ONE job: extract and write raw data. No transforming, no cleaning.
@@ -66,7 +66,7 @@ These rules are working if diffs are smaller, there are fewer rewrites, and ques
 - Number files by dependency order (`01_`, `02_`). Use `${project}`, `${bronze}`, `${silver}`, `${gold}`.
 - Bronze: append rows only, keep every version. Silver: one latest row per id, cast types correctly, state the grain at the top of the file.
 - Gold: holds business rules (for example, exclude `Cancelled` orders). When a rule changes, edit Gold and leave Silver alone.
-- Every Silver table has a grain check in `sql/checks/`. Gold has a check that reconciles its totals with Silver.
+- Every Silver table has a grain check in `src/sql/checks/`. Gold has a check that reconciles its totals with Silver.
 - Large tables (events) must have `PARTITION BY` and `CLUSTER BY`; record the reasoning and measurements in `docs/DECISIONS.md`.
 
 ## Security
@@ -78,8 +78,8 @@ These rules are working if diffs are smaller, there are fewer rewrites, and ques
 - Docker, CI and pre-commit are in place (`docs/DEVOPS.md`). Do not add other tools unless asked.
 - Install packages with `uv` and keep `uv.lock` in sync (`uv lock` after you change `pyproject.toml`).
 - The Docker image must never contain secrets. Keep `.dockerignore` strict; pass secrets at run time (env vars or a read-only mount).
-- Integration tests need Postgres: `make up`, then `make test-integration`. If you change `docker/postgres/init/01_seed.sql`, update `tests/test_ingestion_integration.py` too.
-- Every pipeline step must go through `run_step` in `pipeline/run_daily.py`, so it is logged, recorded in `pipeline_runs` and alerted. Recording and alerts must never crash the pipeline.
+- Integration tests need Postgres: `make up`, then `make test-integration`. If you change `docker/postgres/init/01_seed.sql`, update `src/tests/test_ingestion_integration.py` too.
+- Every pipeline step must go through `run_step` in `src/python/pipeline/run_daily.py`, so it is logged, recorded in `pipeline_runs` and alerted. Recording and alerts must never crash the pipeline.
 - `ALERT_WEBHOOK_URL` and service-account keys are secrets: never log or commit them. Keep one service account per job (see `docs/DEPLOY_VM.md`).
 - CI actions and pre-commit hooks are pinned to versions. Check the real latest tag before you bump one.
 
