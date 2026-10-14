@@ -7,10 +7,9 @@ This page explains the DevOps parts of the repo and what to add next.
 | Part | Files | What it does |
 |---|---|---|
 | Docker image | `Dockerfile`, `.dockerignore` | Runs the pipeline in a clean environment. It installs packages from `uv.lock` and does not run as root. Secrets are never copied in. |
-| Local Postgres | `docker-compose.yml`, `docker/postgres/init/01_seed.sql` | Starts Postgres 16 with a small, fixed set of sample orders. The port is open to your own computer only. |
+| Local Postgres | `docker-compose.yaml`, `docker/postgres/init/01_seed.sql` | Starts Postgres 16 with a small, fixed set of sample orders. The port is open to your own computer only. |
 | Pre-commit | `.pre-commit-config.yaml` | Runs ruff, gitleaks and file checks before each commit. |
-| CI | `.github/workflows/ci.yml` | Runs the same checks on each pull request, and also the tests and a Docker build. |
-| Pull request template | `.github/pull_request_template.md` | Reminds you to run the checks and to keep secrets out. |
+| CI | `.github/workflows/ci.yaml` | Runs the same checks on each push to `main`, and also the tests and a Docker build. |
 | Locked packages | `uv.lock` | Keeps local, Docker and CI runs on the same package versions. |
 | Logs and run history | `pipeline/run_daily.py`, `pipeline/runs.py`, `sql/ops/` | Logs each step and saves one row per step in `stylehub_ops.pipeline_runs`. |
 | Failure alerts | `pipeline/alerts.py` | Sends a Discord message when a step fails. Off when `ALERT_WEBHOOK_URL` is empty. |

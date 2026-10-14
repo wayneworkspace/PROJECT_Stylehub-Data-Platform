@@ -28,7 +28,7 @@
 - [ ] Gold: revenue by category, return rate, delivery time
 
 ## DevOps (done)
-- [x] Dockerfile and `docker-compose.yml` with a local Postgres and sample data
+- [x] Dockerfile and `docker-compose.yaml` with a local Postgres and sample data
 - [x] GitHub Actions CI: pre-commit, lint, unit and integration tests, Docker build
 - [x] Pre-commit hooks (ruff, gitleaks, file checks) and a locked `uv.lock`
 - [x] Logging, `pipeline_runs` history table and Discord failure alerts

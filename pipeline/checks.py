@@ -11,7 +11,7 @@ from pipeline.config import SQL_DIR, render_sql, settings
 
 
 def run_checks() -> bool:
-    client = bigquery.Client(project=settings()["project"])
+    client = bigquery.Client(project=settings().project)
     ok = True
     for path in sorted((SQL_DIR / "checks").glob("*.sql")):
         rows = list(client.query(render_sql(path)).result())

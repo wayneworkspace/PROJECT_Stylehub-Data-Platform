@@ -24,6 +24,8 @@ from pipeline.runs import record_run, run_row
 
 log = logging.getLogger("pipeline")
 
+MAX_ERROR_CHARS = 500  # Longer errors are cut, so one pipeline_runs row stays small.
+
 
 def step_ingest(data_date: str) -> int | None:
     for table in INCREMENTAL_TABLES:
@@ -56,6 +58,7 @@ def step_checks(data_date: str) -> int | None:
     return None
 
 
+# A step takes the data date and returns the rows it loaded, or None if it does not count rows.
 STEPS = [
     ("ingest", step_ingest),
     ("bronze", step_bronze),
@@ -75,7 +78,7 @@ def run_step(
     try:
         rows = func(data_date)
     except (Exception, SystemExit) as exc:
-        status, error = "failed", (str(exc) or type(exc).__name__)[:500]
+        status, error = "failed", (str(exc) or type(exc).__name__)[:MAX_ERROR_CHARS]
         log.error("[run %s] step %s FAILED: %s", run_id, name, error)
         raise
     finally:

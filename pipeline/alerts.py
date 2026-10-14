@@ -11,6 +11,9 @@ import urllib.request
 
 log = logging.getLogger(__name__)
 
+DISCORD_MAX_CHARS = 1900  # Discord rejects messages over 2000 characters. Keep a safety margin.
+REQUEST_TIMEOUT_SECONDS = 10  # A slow webhook must not hold up the pipeline.
+
 
 def send_alert(text: str) -> bool:
     """Return True if the message was sent."""
@@ -20,11 +23,11 @@ def send_alert(text: str) -> bool:
         return False
     request = urllib.request.Request(
         url,
-        data=json.dumps({"content": text[:1900]}).encode("utf-8"),
+        data=json.dumps({"content": text[:DISCORD_MAX_CHARS]}).encode("utf-8"),
         headers={"Content-Type": "application/json", "User-Agent": "stylehub-pipeline"},
     )
     try:
-        with urllib.request.urlopen(request, timeout=10):
+        with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS):
             return True
     except Exception as exc:  # noqa: BLE001 - an alert problem must not hide the real error
         log.warning("Could not send the alert (%s)", type(exc).__name__)

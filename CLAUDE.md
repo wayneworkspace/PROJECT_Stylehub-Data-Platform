@@ -38,9 +38,16 @@ Rules to avoid common AI coding mistakes. They favor caution over speed. For a t
 
 These rules are working if diffs are smaller, there are fewer rewrites, and questions come before the work, not after a mistake.
 
+## How changes are delivered
+- Work directly in the local folder `C:\Users\ADMIN\OneDrive\Desktop\End-to-End\PROJECT_Stylehub-Data-Platform`.
+- No pull requests and no PR descriptions. Do not create a branch just to open a PR.
+- Do not commit or push unless the owner asks. When asked, use Conventional Commits.
+- Keep each change small and say how to check it.
+
 ## Repo conventions
 - Organize folders by layer: `ingestion/`, `sql/{bronze,silver,gold,checks,ops}`, `pipeline/`.
 - Commit using Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`).
+- Name YAML files with the `.yaml` extension, never `.yml` (for example `ci.yaml`, `docker-compose.yaml`, Airbyte `values.yaml`).
 
 ## Contract between layers (do not break, so extending never means rewriting)
 - Every step runs on its own as a CLI with `--date` and is safe to re-run.

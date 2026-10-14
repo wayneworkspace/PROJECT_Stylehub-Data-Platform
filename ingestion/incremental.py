@@ -37,7 +37,7 @@ def window_for(data_date: date, lookback_days: int = LOOKBACK_DAYS) -> tuple[dat
     return start, end
 
 
-def connect():
+def connect() -> psycopg2.extensions.connection:
     return psycopg2.connect(
         host=os.environ["PG_HOST"],
         port=os.environ.get("PG_PORT", "5432"),
@@ -52,6 +52,8 @@ def extract_day(table: str, data_date: date) -> pd.DataFrame:
         raise ValueError(f"No watermark configured for table: {table}")
     column = WATERMARK[table]
     start, end = window_for(data_date)
+    # Table and column names cannot be query parameters. They are safe here because they come
+    # from the WATERMARK dict above, never from user input. The dates are real parameters.
     query = f"SELECT * FROM {table} WHERE {column} >= %s AND {column} < %s"
     # closing() really closes the connection. psycopg2's own "with" only ends the transaction.
     with closing(connect()) as conn, conn.cursor() as cur:

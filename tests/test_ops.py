@@ -1,9 +1,10 @@
 import logging
 from datetime import UTC, datetime
+from unittest.mock import MagicMock
 
 import pytest
 
-from pipeline import alerts, run_daily
+from pipeline import alerts, config, run_daily, runs
 from pipeline.runs import run_row
 
 
@@ -72,3 +73,28 @@ def test_to_step_stops_early(monkeypatch, spy):
     monkeypatch.setattr("sys.argv", ["x", "--date", "2026-10-01", "--to-step", "bronze"])
     run_daily.main()
     assert ran == ["ingest", "bronze"]
+
+
+@pytest.fixture
+def fake_bigquery(monkeypatch):
+    monkeypatch.setattr(config, "load_dotenv", lambda *a, **k: None)
+    monkeypatch.setenv("GCP_PROJECT_ID", "my-project")
+    monkeypatch.setenv("GCS_BUCKET", "my-bucket")
+    client = MagicMock()
+    monkeypatch.setattr(runs.bigquery, "Client", MagicMock(return_value=client))
+    runs._runs_client.cache_clear()
+    yield client
+    runs._runs_client.cache_clear()
+
+
+def test_record_run_creates_the_table_only_once(fake_bigquery):
+    row = {"run_id": "r1"}
+    assert runs.record_run(row) is True
+    assert runs.record_run(row) is True
+    assert fake_bigquery.query.call_count == 1  # CREATE TABLE IF NOT EXISTS ran once
+    assert fake_bigquery.load_table_from_json.call_count == 2  # but both rows were saved
+
+
+def test_record_run_returns_false_instead_of_raising(fake_bigquery):
+    fake_bigquery.query.side_effect = RuntimeError("BigQuery is down")
+    assert runs.record_run({"run_id": "r1"}) is False

@@ -16,7 +16,7 @@ LAYERS = ("bronze", "silver", "gold")
 
 
 def run_layer(layer: str, dry_run: bool = False, only_file: str | None = None) -> None:
-    client = bigquery.Client(project=settings()["project"])
+    client = bigquery.Client(project=settings().project)
     paths = sorted((SQL_DIR / layer).glob("*.sql"))
     if only_file:
         paths = [p for p in paths if p.name == only_file]

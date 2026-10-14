@@ -16,12 +16,13 @@ TABLES = ("orders", "order_items", "products", "users", "shipments")
 
 
 def load_day(table: str, data_date: str) -> int:
-    s = settings()
+    """Append the Raw files of one table and one day to Bronze. Return the rows loaded."""
+    cfg = settings()
     raw_dir = RAW_DIR.get(table, table)
-    uri = f"gs://{s['bucket']}/{s['raw_prefix']}/{raw_dir}/date={data_date}/*"
-    table_id = f"{s['project']}.{s['bronze']}.{table}"
+    uri = f"gs://{cfg.bucket}/{cfg.raw_prefix}/{raw_dir}/date={data_date}/*"
+    table_id = f"{cfg.project}.{cfg.bronze}.{table}"
 
-    client = bigquery.Client(project=s["project"])
+    client = bigquery.Client(project=cfg.project)
     config = bigquery.LoadJobConfig(
         source_format=bigquery.SourceFormat.PARQUET,
         write_disposition=bigquery.WriteDisposition.WRITE_APPEND,

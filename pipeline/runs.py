@@ -5,12 +5,25 @@ Recording is best effort. If it fails, the pipeline still goes on and the error 
 
 import logging
 from datetime import date, datetime
+from functools import cache
 
 from google.cloud import bigquery
 
-from pipeline.config import SQL_DIR, render_sql, settings
+from pipeline.config import SQL_DIR, Settings, render_sql, settings
 
 log = logging.getLogger(__name__)
+
+
+@cache
+def _runs_client(cfg: Settings) -> bigquery.Client:
+    """Build the BigQuery client and create pipeline_runs, once per process.
+
+    @cache keeps the first result, so the next steps skip the CREATE TABLE query.
+    If this raises, nothing is cached and the next step tries again.
+    """
+    client = bigquery.Client(project=cfg.project)
+    client.query(render_sql(SQL_DIR / "ops" / "01_pipeline_runs.sql")).result()
+    return client
 
 
 def run_row(
@@ -22,7 +35,7 @@ def run_row(
     finished_at: datetime,
     rows_loaded: int | None = None,
     error: str | None = None,
-) -> dict:
+) -> dict[str, object]:
     return {
         "run_id": run_id,
         "step": step,
@@ -37,15 +50,12 @@ def run_row(
 
 
 def record_run(row: dict) -> bool:
-    """Create the table if needed, then append one row. Return True on success."""
+    """Append one row to pipeline_runs. Return True on success."""
     try:
-        s = settings()
-        client = bigquery.Client(project=s["project"])
-        client.query(render_sql(SQL_DIR / "ops" / "01_pipeline_runs.sql")).result()
+        cfg = settings()
+        client = _runs_client(cfg)
         # A load job is used (not streaming inserts), so it also works without billing.
-        client.load_table_from_json(
-            [row], f"{s['project']}.{s['ops']}.pipeline_runs"
-        ).result()
+        client.load_table_from_json([row], f"{cfg.project}.{cfg.ops}.pipeline_runs").result()
         return True
     except Exception as exc:  # noqa: BLE001 - recording must not break the pipeline
         log.warning("Could not record the run in BigQuery: %s", exc)

@@ -87,8 +87,7 @@ flowchart LR
 ```
 .
 ├── .github/
-│   ├── workflows/ci.yml     # Checks that run on every pull request
-│   └── pull_request_template.md
+│   └── workflows/ci.yaml    # Checks that run on every push to main
 ├── assets/                  # Icons used in this README
 ├── deploy/                  # Script and systemd timers to run on a VM
 ├── docker/
@@ -125,7 +124,7 @@ flowchart LR
 ├── .pre-commit-config.yaml  # Checks that run before each commit
 ├── CLAUDE.md                # Rules for AI assistants and contributors
 ├── Dockerfile               # Image for the pipeline
-├── docker-compose.yml       # Local Postgres with sample data
+├── docker-compose.yaml      # Local Postgres with sample data
 ├── Makefile                 # Short commands
 ├── pyproject.toml           # Dependencies and tool settings
 ├── README.md
@@ -245,7 +244,7 @@ make check
 | Pre-commit hooks (ruff, gitleaks, file checks) | Run `uvx pre-commit install` once. | On every `git commit` |
 | Unit tests | `uv run pytest` | You run them before you push |
 | Integration tests | `uv run pytest -m integration` (needs the Docker Postgres) | You run them before you push |
-| CI on GitHub | Same checks, plus a Docker build | On every pull request |
+| CI on GitHub | Same checks, plus a Docker build | On every push to `main` |
 
 See [docs/DEVOPS.md](docs/DEVOPS.md) for what each CI job does.
 
@@ -284,7 +283,7 @@ See [docs/DEVOPS.md](docs/DEVOPS.md) for what each CI job does.
 | Bronze row count grows after a re-run | This is by design. Silver removes the duplicates. |
 | `make` is not found on Windows | Use the `uv run` commands. |
 | `pytest` says tests were "deselected" | Integration tests are off by default. Start the Docker Postgres and add `-m integration`. |
-| `docker compose up` says port 5432 is in use | Another Postgres runs on your computer. Stop it, or change the port in `docker-compose.yml`. |
+| `docker compose up` says port 5432 is in use | Another Postgres runs on your computer. Stop it, or change the port in `docker-compose.yaml`. |
 | A commit fails and files changed | A pre-commit hook fixed them, for example trailing spaces. Run `git add` again and commit again. |
 | A commit is blocked by gitleaks | It found something that looks like a key. Remove the secret first. If it was a real key, rotate it. |
 
