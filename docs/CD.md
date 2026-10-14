@@ -39,18 +39,18 @@ gcloud artifacts repositories create stylehub --repository-format=docker \
   --location=REGION --project PROJECT
 
 # 2. A service account that GitHub may use. It can only write to this one repository.
-gcloud iam service-accounts create sa-cd --project PROJECT
+gcloud iam service-accounts create sa-github-cd --project PROJECT
 gcloud artifacts repositories add-iam-policy-binding stylehub --location=REGION --project PROJECT \
-  --member serviceAccount:sa-cd@PROJECT.iam.gserviceaccount.com --role roles/artifactregistry.writer
+  --member serviceAccount:sa-github-cd@PROJECT.iam.gserviceaccount.com --role roles/artifactregistry.writer
 
-# 3. Let GitHub act as sa-cd, but only for your repo
+# 3. Let GitHub act as sa-github-cd, but only for your repo
 gcloud iam workload-identity-pools create github --project PROJECT --location=global
 gcloud iam workload-identity-pools providers create-oidc github-repo \
   --project PROJECT --location=global --workload-identity-pool=github \
   --issuer-uri=https://token.actions.githubusercontent.com \
   --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository" \
   --attribute-condition="assertion.repository=='OWNER/REPO'"
-gcloud iam service-accounts add-iam-policy-binding sa-cd@PROJECT.iam.gserviceaccount.com \
+gcloud iam service-accounts add-iam-policy-binding sa-github-cd@PROJECT.iam.gserviceaccount.com \
   --project PROJECT --role roles/iam.workloadIdentityUser \
   --member "principalSet://iam.googleapis.com/projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/github/attribute.repository/OWNER/REPO"
 
@@ -68,7 +68,7 @@ gh variable set GCP_PROJECT_ID --body "PROJECT"
 gh variable set GCP_REGION --body "REGION"
 gh variable set AR_REPOSITORY --body "stylehub"
 gh variable set WIF_PROVIDER --body "projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/github/providers/github-repo"
-gh variable set WIF_SERVICE_ACCOUNT --body "sa-cd@PROJECT.iam.gserviceaccount.com"
+gh variable set WIF_SERVICE_ACCOUNT --body "sa-github-cd@PROJECT.iam.gserviceaccount.com"
 ```
 
 Last, tell the VM which image to use. Add one line to `/etc/stylehub/pipeline.env`:
