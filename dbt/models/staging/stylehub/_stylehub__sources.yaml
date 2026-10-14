@@ -1,0 +1,16 @@
+version: 2
+
+# Bronze is loaded by storage/load_bronze.py (or Airbyte). dbt only reads it, and only the
+# staging models call source().
+sources:
+  - name: stylehub
+    description: The StyleHub shop tables as loaded into Bronze (one snapshot per day).
+    database: "{{ env_var('GCP_PROJECT_ID') }}"
+    schema: "{{ env_var('BQ_BRONZE', 'stylehub_bronze') }}"
+    tables:
+      - name: orders
+      - name: order_items
+      - name: products
+      - name: users
+      # Built once: python -m transform.run_sql bronze (src/sql/bronze/01_events_partitioned.sql)
+      - name: events_partitioned

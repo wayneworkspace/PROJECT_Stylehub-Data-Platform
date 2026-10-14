@@ -3,8 +3,8 @@ __pycache__/
 *.pyc
 .env
 secrets/
-assets/*
-!assets/icon-*.png
+docs/assets/*
+!docs/assets/icon-*.png
 logs/
 *.json.key
 .idea/
@@ -13,7 +13,9 @@ notebooks_backup/
 dbt/target/
 dbt/dbt_packages/
 dbt/logs/
+deploy/airflow/logs/
 airflow/logs/
 data/
 to_delete/
-docs/
+docs/DATA_PROFILE.md
+dbt/.user.yml

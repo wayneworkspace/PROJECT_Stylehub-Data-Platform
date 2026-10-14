@@ -35,35 +35,36 @@ Today the revenue rule is "every order except `Cancelled`". Finance now says: al
 
 | File | Why it has the rule |
 |---|---|
-| `src/sql/gold/01_daily_revenue.sql` | Revenue and order count per day |
-| `src/sql/gold/02_monthly_revenue_by_category.sql` | Revenue and profit per category |
-| `src/sql/checks/03_gold_matches_silver.sql` | Compares the Gold total with Silver. It must use the same rule, or the check fails. |
+| `dbt/models/marts/reporting/daily_revenue.sql` | Revenue and order count per day |
+| `dbt/models/marts/reporting/monthly_revenue_by_category.sql` | Revenue and profit per category |
+| `dbt/tests/gold_matches_silver.sql` | Compares the Gold total with Silver. It must use the same rule, or the test fails. |
 
-`src/sql/gold/03_return_rate_by_state.sql` counts returned orders on purpose. It does not change.
+`dbt/models/marts/reporting/return_rate_by_state.sql` counts returned orders on purpose. It does not change.
 
 ### Steps
 
 1. In the three files above, change `status != 'Cancelled'` to `status NOT IN ('Cancelled', 'Returned')`.
-2. Check that the rule is the same in all three files. `src/tests/test_business_rules.py` fails if one file still has the old rule, or if a rule appears in Silver.
+2. Check that the rule is the same in all three files. `src/tests/transform/test_business_rules.py` fails if one file still has the old rule, or if a rule appears in Silver.
 
 ```powershell
-uv run pytest src/tests/test_business_rules.py
+uv run pytest src/tests/transform/test_business_rules.py
 ```
 
 3. See how many bytes Gold will scan, before you pay for it.
 
 ```powershell
-uv run python -m transform.run_sql gold --dry-run
+uv run python -m transform.run_dbt gold --command compile
 ```
 
-4. Rebuild Gold only, then run the checks.
+(`compile` only shows the SQL. To see the bytes, run the compiled SQL with a BigQuery dry run.)
+
+4. Rebuild Gold only. dbt runs the tests too.
 
 ```powershell
-uv run python -m transform.run_sql gold
-uv run python -m transform.checks
+uv run python -m transform.run_dbt gold
 ```
 
 Silver is not rebuilt and nothing is loaded again. That is the point of ELT with layers.
 
 > [!NOTE]
-> This is an exercise. The repo still counts every order except `Cancelled`. Steps 3 and 4 need a real BigQuery project, and I have not run them.
+> This is an exercise. The repo still counts every order except `Cancelled`. Step 4 needs BigQuery and has run on the current rule only. I did not try the changed rule.

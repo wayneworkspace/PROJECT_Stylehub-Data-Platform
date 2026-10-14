@@ -1,0 +1,8 @@
+version: 2
+
+models:
+  - name: int_order_items_joined_to_products
+    description: One row per order item, with the product's current cost.
+
+  - name: int_orders_joined_to_item_totals
+    description: One row per order, with total_amount = the sum of its item prices.

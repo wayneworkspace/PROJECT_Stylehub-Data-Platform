@@ -1,0 +1,26 @@
+version: 2
+
+models:
+  - name: daily_revenue
+    description: Revenue per day. Cancelled orders are not counted.
+    columns:
+      - name: order_date
+        data_tests: [unique, not_null]
+
+  - name: monthly_revenue_by_category
+    description: Revenue and profit per month and category.
+
+  - name: return_rate_by_state
+    description: Share of returned orders by the customer's state.
+
+  - name: avg_delivery_days_by_state
+    description: Average days from shipped to delivered, by state.
+
+  - name: daily_events_by_type
+    description: Events, users and sessions per day and event type.
+
+  - name: funnel_by_category
+    description: Views, cart adds and purchases by product category, with the step rates.
+    columns:
+      - name: category
+        data_tests: [unique]

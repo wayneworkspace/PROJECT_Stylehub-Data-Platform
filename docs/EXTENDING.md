@@ -2,19 +2,18 @@
 
 The repo is split so new tools can be added without rewriting. What stays fixed is the **contract**: dataset names (`stylehub_bronze`, `stylehub_silver`, `stylehub_gold`), table names and the grain of each table, and the Raw Zone paths.
 
-## dbt (replaces `src/sql/silver`, `src/sql/gold`, `src/sql/checks`)
+## dbt (added, see `dbt/README.md`)
 
-1. Create a `dbt/` folder. Declare `sources` pointing at `stylehub_bronze`.
-2. Each `src/sql/silver/NN_name.sql` becomes a model `models/silver/name.sql`: drop the `CREATE OR REPLACE TABLE` line, keep the `SELECT`, replace `` `${project}.${bronze}.x` `` with `{{ source('bronze', 'x') }}` and `` `${project}.${silver}.x` `` with `{{ ref('x') }}`. The `01_`, `02_` ordering is no longer needed because dbt derives order from `ref`.
-3. Each file in `src/sql/checks/` becomes a test: grain checks become `unique` + `not_null`, the rest become singular tests (same shape: "return rows if broken").
-4. Remove `make silver`, `make gold` and `make check` in favor of `dbt build`. `src/python/ingestion/` and `load_bronze` do not change.
+`dbt/` has 19 models in the dbt Labs layout (staging, intermediate, marts/core, marts/reporting), `sources` for Bronze, and the checks as tests.
+Run it with `python -m transform.run_dbt silver|gold`. `run_daily` calls it in the silver and gold steps.
+`fact_events` is incremental (`insert_overwrite` by `event_date`). Not done yet: incremental for the other fact tables (they are small), and dbt for `bronze/01_events_partitioned.sql`.
 
-## Airflow (replaces `src/python/orchestration/run_daily.py`)
+## Airflow (added, see `deploy/airflow/README.md`)
 
-1. `STEPS` in `run_daily.py` is already the list of steps: ingest → bronze → silver → gold → checks. Each step becomes a task.
-2. Tasks call the existing CLIs (`python -m ingestion.database --date {{ ds }}`, `python -m storage.load_bronze --date {{ ds }}`, ...). No logic inside needs to change.
-3. Retries and alerts are configured in Airflow, not written in Python code.
-4. If dbt is already in use, the silver/gold/checks tasks merge into one `dbt build`.
+`deploy/airflow/dags/stylehub_daily.py` runs ingest → bronze → silver → gold, one task per step.
+`ingest` and `bronze` use `ExternalPythonOperator` (a Python function in the pipeline environment). `silver` and `gold` use `BashOperator` and call `run_daily --from-step X --to-step X`, which starts dbt. Logs, `pipeline_runs` and Discord alerts keep working in both.
+Airflow is installed in its own environment, because its package versions clash with this project.
+Use `airflow dags backfill` and the DAG schedule for past dates. The whole DAG has run on BigQuery with `airflow dags test`.
 
 ## Spark (for heavy processing, for example `events`)
 
@@ -24,4 +23,4 @@ The repo is split so new tools can be added without rewriting. What stays fixed 
 
 ## Replacing Python ingestion with Airbyte
 
-`src/python/ingestion/` and Airbyte both write to the Raw Zone/Bronze. Switch the source of a table by disabling that table's ingest step in `run_daily.py`. If Airbyte loads Bronze directly, change `_ingested_at` to `_airbyte_extracted_at` in `src/sql/silver/`.
+`src/python/ingestion/` and Airbyte both write to the Raw Zone/Bronze. Switch the source of a table by disabling that table's ingest step in `run_daily.py`. If Airbyte loads Bronze directly, change `_ingested_at` to `_airbyte_extracted_at` in `dbt/models/silver/`.

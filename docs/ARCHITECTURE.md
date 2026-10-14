@@ -4,10 +4,10 @@
 
 | Layer | Where | Contents | Written by |
 |---|---|---|---|
-| Raw Zone | GCS `raw/stylehub/<table>/date=<date>/batch_id=<id>/` | Files exactly as fetched, append-only, with `_ingested_at`, `_source`, `_batch_id` | `src/python/ingestion/` or Airbyte |
+| Raw Zone | GCS `raw/stylehub/<table>/date=<date>/batch_id=<id>/` | Files exactly as fetched, append-only, with `_ingested_at`, `_source`, `_batch_id` | `src/python/ingestion/csv_tables.py` (or Postgres, API, Airbyte) |
 | Bronze | BigQuery `stylehub_bronze` | Copy of the source, keeping every ingest | `src/python/storage/load_bronze.py` |
-| Silver | BigQuery `stylehub_silver` | Cleaned, organized into facts and dimensions | `src/sql/silver/` |
-| Gold | BigQuery `stylehub_gold` | Business tables that hold the rules | `src/sql/gold/` |
+| Silver | BigQuery `stylehub_silver` | Cleaned, organized into facts and dimensions | dbt: `dbt/models/staging/`, `intermediate/`, `marts/core/` |
+| Gold | BigQuery `stylehub_gold` | Business tables that hold the rules | dbt: `dbt/models/marts/reporting/` |
 
 When a business rule changes, rerun from the nearest layer: edit Gold, leave Silver as is.
 
@@ -17,11 +17,12 @@ When a business rule changes, rerun from the nearest layer: edit Gold, leave Sil
 |---|---|---|
 | fact_order_items | one order item | fact |
 | fact_orders | one order | fact |
-| fact_shipments | one shipment | fact |
+| fact_shipments | one shipped order (built from order dates) | fact |
+| fact_events | one event (view, cart, purchase) | fact |
 | dim_products | one product | dimension |
 | dim_users | one customer | dimension |
 
-`events` (behavior, ~108 million rows) sits in Bronze as `events_partitioned`. When it needs modeling, `fact_events` and `dim_date` will be added to Silver.
+`events` (behavior, ~108 million rows) sits in Bronze as `events_partitioned`. It is copied from the course dataset once (that dataset is in another region) and then partitioned. `fact_events` is in Silver. `dim_date` is not built yet.
 
 ## Current Gold tables
 
@@ -31,12 +32,15 @@ When a business rule changes, rerun from the nearest layer: edit Gold, leave Sil
 | monthly_revenue_by_category | Revenue and profit by category per month |
 | return_rate_by_state | Share of returned orders by state |
 | avg_delivery_days_by_state | Average delivery time by state |
+| daily_events_by_type | Events, users and sessions per day and event type |
+| funnel_by_category | Views, cart adds and purchases per product category |
 
 ## Ingestion (sessions 2 and 4)
 
-- **Python API ingestion** (`src/python/ingestion/api.py`, client in `src/python/sources/stylehub_api.py`): reads the `users` endpoint one day at a time with `created_from` and `created_to`. It sends the key in a header, reads pages until `has_more` is false, and retries 5xx errors, timeouts and rate limits with a wait that doubles. It stops at once on 400 or 401.
-- **Python database ingestion** (`src/python/ingestion/database.py`): use when you need control over each step: choosing the watermark, the lookback, and the Raw path. It can load one day (incremental) or the whole table (`--full-load`). Before it writes, `src/python/ingestion/schema_check.py` compares the columns with the expected ones (see the table in that file).
-- **Backfill** (`src/python/orchestration/backfill.py`): runs the steps for a range of past dates. Running the range twice adds Raw files but does not change the distinct ids.
+- **Python CSV-table ingestion** (`src/python/ingestion/csv_tables.py`): the path `run_daily` uses. It reads the course tables from the `stylehub` dataset in BigQuery, checks the columns, and writes a full Parquet file to the Raw Zone. The CSV files have no `updated_at`, so there is no watermark.
+- **Python API ingestion** (`src/python/ingestion/optional/api.py`, client in `src/python/ingestion/optional/sources/stylehub_api.py`): reads the `users` endpoint one day at a time with `created_from` and `created_to`. It sends the key in a header, reads pages until `has_more` is false, and retries 5xx errors, timeouts and rate limits with a wait that doubles. It stops at once on 400 or 401.
+- **Python database ingestion** (`src/python/ingestion/optional/database.py`): use when you need control over each step: choosing the watermark, the lookback, and the Raw path. It can load one day (incremental) or the whole table (`--full-load`). Before it writes, `src/python/ingestion/schema_check.py` compares the columns with the expected ones (see the table in that file).
+- **Backfill**: use `airflow dags backfill` (see `deploy/airflow/README.md`). Running a range twice adds Raw files but does not change the distinct ids.
 - **Airbyte OSS** on a GCP VM (`e2-standard-4`, `asia-southeast1-b`): use for Postgres and the API (Connector Builder).
 
 Airbyte sync modes (from session 4):

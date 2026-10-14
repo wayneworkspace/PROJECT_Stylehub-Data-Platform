@@ -1,14 +1,48 @@
-# Local development. Starts a small Postgres with sample data, so you can test ingestion
-# without touching the course database.
+# Everything that runs in Docker, in ONE file. Nothing starts unless you pick a profile
+# (or name the service). Run these from the project folder (PowerShell):
 #
-#   docker compose up -d postgres                      # start Postgres with sample data
-#   docker compose run --rm pipeline python -m ingestion.database --table orders --date 2026-10-01 --dry-run
-#   docker compose down -v                             # stop and delete the sample data
+#   dev       a small Postgres with sample data, to try ingestion without any cloud account
+#             docker compose up -d postgres
+#             docker compose run --rm pipeline python -m ingestion.optional.database --table orders --date 2026-10-01 --dry-run
+#   pipeline  the pipeline image, run once (needs secrets/.env and your key in secrets/)
+#             docker compose run --rm pipeline python -m orchestration.run_daily --date 2026-10-01
+#   airflow   Airflow: its own database, a one-time setup, the web page and the scheduler
+#             Fill in the AIRFLOW_ values in secrets/.env (the names are in .env.example)
+#             docker compose --env-file secrets/.env --profile airflow up -d --build
+#             docker compose --env-file secrets/.env --profile airflow down
 #
-# The password below is for this throwaway local database only. Never reuse it anywhere else.
+# Stop everything and delete the sample data:  docker compose --profile dev down -v
+# The passwords below are for throwaway local containers only. Never reuse them anywhere else.
+
+x-airflow-common: &airflow-common
+  profiles: ["airflow"]
+  build:
+    context: .
+    dockerfile: deploy/airflow/Dockerfile
+  environment: &airflow-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/dags
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${AIRFLOW_DB_PASSWORD:-}@airflow-db/airflow
+    # One secret key for the web page and the scheduler, so the task logs can be read in the UI.
+    AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY:-}
+    # How the DAG starts the pipeline (see deploy/airflow/dags/stylehub_daily.py).
+    STYLEHUB_HOME: /opt/stylehub
+    STYLEHUB_RUN: uv run --no-sync
+  volumes:
+    - ./deploy/airflow/dags:/opt/airflow/dags:ro
+    # The project folder is mounted, so a code change is used by the next task without a rebuild.
+    - .:/opt/stylehub
+    - ./secrets:/opt/stylehub/secrets:ro
+    - airflow-logs:/opt/airflow/logs
+  depends_on:
+    airflow-db:
+      condition: service_healthy
 
 services:
+  # ---- profile dev / pipeline: the sample source and the pipeline image -----------------------
   postgres:
+    profiles: ["dev", "pipeline"]
     image: postgres:16
     environment:
       POSTGRES_USER: stylehub
@@ -18,7 +52,7 @@ services:
       # Bind to localhost only, so other machines on your network cannot reach it.
       - "127.0.0.1:5432:5432"
     volumes:
-      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+      - ./deploy/postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U stylehub -d stylehub"]
       interval: 5s
@@ -26,8 +60,10 @@ services:
       retries: 10
 
   pipeline:
-    build: .
     profiles: ["pipeline"]
+    build:
+      context: .
+      dockerfile: deploy/pipeline/Dockerfile
     env_file:
       - path: secrets/.env
         required: false
@@ -38,9 +74,73 @@ services:
       PG_DATABASE: stylehub
       PG_USER: stylehub
       PG_PASSWORD: ${LOCAL_PG_PASSWORD:-stylehub_local}
-      GOOGLE_APPLICATION_CREDENTIALS: /app/secrets/gcp-sa.json
     volumes:
       - ./secrets:/app/secrets:ro
     depends_on:
       postgres:
         condition: service_healthy
+
+  # ---- profile airflow --------------------------------------------------------------------------
+  airflow-db:
+    profiles: ["airflow"]
+    image: postgres:16
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: ${AIRFLOW_DB_PASSWORD:-}
+      POSTGRES_DB: airflow
+    volumes:
+      - airflow-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow -d airflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Runs once: checks the values from secrets/.env, creates the Airflow tables and the admin user.
+  # The web page and the scheduler wait for it, so they never start with an empty password.
+  airflow-init:
+    <<: *airflow-common
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - >
+        : "$${AIRFLOW_ADMIN_PASSWORD:?set AIRFLOW_ADMIN_PASSWORD in secrets/.env}" &&
+        : "$${AIRFLOW__WEBSERVER__SECRET_KEY:?set AIRFLOW_SECRET_KEY in secrets/.env}" &&
+        airflow db migrate &&
+        { airflow users create --username "$$AIRFLOW_ADMIN_USER" --password "$$AIRFLOW_ADMIN_PASSWORD"
+        --firstname Admin --lastname User --role Admin --email admin@example.com || true; }
+    environment:
+      <<: *airflow-env
+      AIRFLOW_ADMIN_USER: ${AIRFLOW_ADMIN_USER:-admin}
+      AIRFLOW_ADMIN_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD:-}
+
+  airflow-webserver:
+    <<: *airflow-common
+    command: webserver
+    depends_on:
+      airflow-db:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    ports:
+      # Localhost only, so other machines on your network cannot open it.
+      # If port 8080 is taken on your computer, set AIRFLOW_WEB_PORT=8081 in secrets/.env.
+      - "127.0.0.1:${AIRFLOW_WEB_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+    depends_on:
+      airflow-db:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+
+volumes:
+  airflow-db-data:
+  airflow-logs:

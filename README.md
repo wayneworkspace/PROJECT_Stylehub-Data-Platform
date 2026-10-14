@@ -1,35 +1,37 @@
 # StyleHub Data Pipeline
 
-A learning project that moves online shop data from Postgres into BigQuery. The data passes through Raw, Bronze, Silver and Gold layers on Google Cloud.
+A learning project that moves online shop data into BigQuery. The data passes through Raw, Bronze, Silver and Gold layers on Google Cloud.
 
 ## Tech Stack
 
 | Category | Technologies |
 |---|---|
-| **Programming** | <img src="assets/icon-python.png" alt="Python" height="24" /> Python  •  SQL  •  python-dotenv |
-| **Data Storage** | <img src="assets/icon-gcs.png" alt="Google Cloud Storage" height="24" /> Google Cloud Storage  •  <img src="assets/icon-bigquery.png" alt="BigQuery" height="24" /> BigQuery  •  <img src="assets/icon-postgresql.png" alt="PostgreSQL" height="24" /> PostgreSQL (source)  •  <img src="assets/icon-parquet.png" alt="Apache Parquet" height="24" /> Parquet |
-| **Data Processing** | <img src="assets/icon-pandas.png" alt="pandas" height="24" /> pandas  •  <img src="assets/icon-arrow.png" alt="Apache Arrow" height="24" /> PyArrow |
-| **Tooling** | <img src="assets/icon-uv.png" alt="uv" height="24" /> uv  •  <img src="assets/icon-make.png" alt="GNU Make" height="24" /> Make  •  Ruff  •  <img src="assets/icon-pytest.png" alt="pytest" height="24" /> pytest |
-| **DevOps** | <img src="assets/icon-docker.png" alt="Docker" height="24" /> Docker and Docker Compose  •  <img src="assets/icon-githubactions.png" alt="GitHub Actions" height="24" /> GitHub Actions  •  pre-commit  •  gitleaks |
+| **Programming** | <img src="docs/assets/icon-python.png" alt="Python" height="24" /> Python  •  SQL  •  python-dotenv |
+| **Data Storage** | <img src="docs/assets/icon-gcs.png" alt="Google Cloud Storage" height="24" /> Google Cloud Storage  •  <img src="docs/assets/icon-bigquery.png" alt="BigQuery" height="24" /> BigQuery  •  <img src="docs/assets/icon-postgresql.png" alt="PostgreSQL" height="24" /> PostgreSQL (source)  •  <img src="docs/assets/icon-parquet.png" alt="Apache Parquet" height="24" /> Parquet |
+| **Data Processing** | <img src="docs/assets/icon-pandas.png" alt="pandas" height="24" /> pandas  •  <img src="docs/assets/icon-arrow.png" alt="Apache Arrow" height="24" /> PyArrow |
+| **Transform & Orchestration** | dbt (dbt-bigquery)  •  Apache Airflow |
+| **Tooling** | <img src="docs/assets/icon-uv.png" alt="uv" height="24" /> uv  •  Ruff  •  <img src="docs/assets/icon-pytest.png" alt="pytest" height="24" /> pytest |
+| **DevOps** | <img src="docs/assets/icon-docker.png" alt="Docker" height="24" /> Docker and Docker Compose  •  <img src="docs/assets/icon-githubactions.png" alt="GitHub Actions" height="24" /> GitHub Actions  •  pre-commit  •  gitleaks |
 
 > [!NOTE]
-> This is a personal project built while following a 5-session data engineering course. The Python tests pass, including tests against a real Postgres. The SQL has **not** run on a real BigQuery project yet. See [Troubleshooting & Limitations](#troubleshooting--limitations).
+> This is a personal project built while following a 5-session data engineering course. The pipeline has run end to end on a real BigQuery project with the course CSV files, by hand and through Airflow. The Postgres and API code paths have **not** run on real sources. See [Troubleshooting & Limitations](#troubleshooting--limitations).
 
 ## Overview
 
-**Problem.** StyleHub is a course dataset. It has five shop tables (users, products, orders, order_items, shipments) and an `events` table with about 108 million rows. Reports on the shop database can slow down the shop. The raw tables are also hard to use. Ids repeat, column types are loose, and each report may define "revenue" in its own way.
+**Problem.** StyleHub is a course dataset. It has four shop tables (users, products, orders, order_items) and an `events` table with about 108 million rows. There is no shipments file, so shipments are built from the dates on each order. Reports on the shop database can slow down the shop. The raw tables are also hard to use. Ids repeat, column types are loose, and each report may define "revenue" in its own way.
 
 **Solution.** The pipeline copies raw data to cloud storage first. It loads the data into Bronze without changes. It then builds clean Silver tables, one row per fact or per thing. Gold tables answer business questions with clear rules. Each step runs alone and is safe to run again.
 
-**Data Flow.** Postgres + API → Raw Zone (GCS) → Bronze → Silver → Gold → Checks
+**Data Flow.** Course CSV tables (BigQuery) → Raw Zone (GCS) → Bronze → Silver → Gold. dbt builds Silver and Gold, and its tests are the checks. Airflow runs the steps each day. `events` goes through a one-time copy and a partitioned table.
 
 ```mermaid
 flowchart LR
-    A[(Postgres + API)] --> B[Raw Zone<br/>GCS, Parquet]
+    A[(Course CSV tables<br/>BigQuery)] --> B[Raw Zone<br/>GCS, Parquet]
     B --> C[Bronze<br/>BigQuery]
     C --> D[Silver<br/>facts and dimensions]
     D --> E[Gold<br/>business tables]
-    E --> F[Checks]
+    E --> F[dbt tests]
+    G[Airflow DAG<br/>daily] -.-> B
 ```
 
 ## Architecture
@@ -38,10 +40,10 @@ flowchart LR
 
 | Layer | Responsibility | Files |
 |---|---|---|
-| Ingestion | Read rows from Postgres or the API. Write raw Parquet files. Nothing else. | `src/python/ingestion/` (`database.py`, `api.py`) |
-| Load | Append Raw files into Bronze tables. | `src/python/storage/load_bronze.py` |
-| Transform | Run the SQL files of one layer in order. | `src/python/transform/run_sql.py`, `src/sql/` |
-| Checks | Run SQL checks. A check passes when it returns zero rows. | `src/python/transform/checks.py`, `src/sql/checks/` |
+| Ingestion | Read the course tables. Write raw Parquet files. Nothing else. | `src/python/ingestion/csv_tables.py` (used by the pipeline). `database.py` (Postgres) and `api.py` are kept for a live source. |
+| Load | Load the latest Raw batch of each day into Bronze. Build the big `events` table once. | `src/python/storage/load_bronze.py`, `events_bronze.py`, `copy_events.py` |
+| Transform | Build Silver and Gold with dbt. dbt tests are the data checks. | `src/python/transform/run_dbt.py`, `dbt/` |
+| Table setup | Run the SQL files of the Bronze layer (partitioned events). | `src/python/transform/run_sql.py`, `src/sql/` |
 | Runner | Run all steps for one date. | `src/python/orchestration/run_daily.py` |
 | Config | Read environment variables. Fill `${project}` and similar names in SQL. | `src/python/common/config.py` |
 
@@ -50,7 +52,7 @@ flowchart LR
 | Layer | Where | Contents |
 |---|---|---|
 | Raw Zone | GCS: `raw/stylehub/<table>/date=<date>/batch_id=<id>/` | Files as fetched. Each has `_ingested_at`, `_source` and `_batch_id`. |
-| Bronze | BigQuery: `stylehub_bronze` | A copy of the source. Every version of a row stays. |
+| Bronze | BigQuery: `stylehub_bronze` | A copy of the source. One snapshot per day. |
 | Silver | BigQuery: `stylehub_silver` | One latest row per id, with correct types. Built as a star schema. |
 | Gold | BigQuery: `stylehub_gold` | Business tables that hold the rules. |
 
@@ -60,25 +62,44 @@ flowchart LR
 |---|---|---|
 | `fact_order_items` | Silver | One item in an order |
 | `fact_orders` | Silver | One order |
-| `fact_shipments` | Silver | One shipment |
+| `fact_shipments` | Silver | One shipped order |
+| `fact_events` | Silver | One event (view, cart, purchase). About 108 million rows. Incremental. |
 | `dim_products` | Silver | One product |
 | `dim_users` | Silver | One customer |
 | `daily_revenue` | Gold | Orders and revenue for one day (no Cancelled orders) |
 | `monthly_revenue_by_category` | Gold | Revenue and profit for one category in one month |
 | `return_rate_by_state` | Gold | Share of returned orders in one state |
 | `avg_delivery_days_by_state` | Gold | Average delivery time in one state |
+| `daily_events_by_type` | Gold | Events, users and sessions for one day and one event type |
+| `funnel_by_category` | Gold | Views, cart adds and purchases for one product category |
+
+### dbt folders
+
+The dbt folders follow the dbt Labs layout. The datasets and the step names keep the Silver and Gold names.
+
+| dbt folder | Models | Dataset | Built by step |
+|---|---|---|---|
+| `models/staging/stylehub/` | 5 views `stg_stylehub__*`. Latest row per id, types cast. Only these call `source()` | `stylehub_silver` | `silver` |
+| `models/intermediate/` | 2 views `int_*`: items with product cost, orders with item totals | `stylehub_silver` | `silver` |
+| `models/marts/core/` | 6 tables: `dim_products`, `dim_users`, `fact_orders`, `fact_order_items`, `fact_shipments`, `fact_events` | `stylehub_silver` | `silver` |
+| `models/marts/reporting/` | 6 tables, the Gold business tables | `stylehub_gold` | `gold` |
+
+Tags, materialization and dataset are set per folder in `dbt/dbt_project.yml`. Each folder has its own `_<folder>__models.yaml`.
 
 ### Key design decisions
 
 | Decision | How it works |
 |---|---|
 | Raw Zone is append-only | Each run writes a new file under a new `batch_id`. Nothing is overwritten. |
-| Bronze keeps duplicates | Running a day twice adds rows twice. Silver removes them. |
+| Bronze keeps one batch per day | Running a day twice replaces that day's batch, so rows are not doubled. Each day stays as its own snapshot. Silver keeps the newest row of each id. |
 | Latest row per id | Silver keeps the newest version of each id with `QUALIFY ROW_NUMBER()`. |
-| Lookback window | Ingestion reads one extra day before the target date. This catches late rows. |
+| Full load for CSV | The course CSV files have no `updated_at`, so every run reads whole tables. Silver keeps the latest row of each id. |
+| Lookback window | Only for the Postgres path. It reads one extra day before the target date. |
 | Rules live in Gold | Gold drops `Cancelled` orders. If the rule changes, rebuild Gold only. |
 | Grain comes first | Each Silver file states its grain at the top. A check compares row count with distinct id count. |
-| Partition and cluster | `events_partitioned` is split by day and clustered by `event_type` and `product_id`. |
+| Partition and cluster | `events_partitioned` is split by day and clustered by `event_type` and `product_id`. It is built once; the course `events` table is in the US, so it is copied to Bronze first. |
+| Incremental events | `fact_events` rebuilds the newest 3 days (`insert_overwrite` by `event_date`, variable `events_lookback_days`). Use `--full-refresh` to rebuild all. |
+| Airflow operators | `ExternalPythonOperator` runs the Python steps (ingest, bronze) in a separate environment. `BashOperator` runs the dbt steps (silver, gold) through the CLI. `EmptyOperator` marks the start and the end. `PythonOperator` is not used, because Airflow pins library versions that clash with the pipeline. |
 | Logic stays in SQL | SQL files hold the business logic. Python only runs them. |
 | CTEs, no subqueries | Every SQL file uses CTEs. A test fails if it finds a subquery. |
 
@@ -89,16 +110,32 @@ flowchart LR
 ├── .github/
 │   └── workflows/
 │       ├── ci.yaml          # Checks that run on every push to main
-│       └── cd.yaml          # Pushes the image to Artifact Registry after CI
-├── assets/                  # Icons used in this README
+│       ├── cd.yaml          # Pushes the image to Artifact Registry after CI
+│       └── freshness.yaml   # Daily "did the pipeline run?" check (alert from outside Airflow)
 ├── data/                    # Your local course CSV files. Git ignores this folder.
-├── deploy/                  # Script and systemd timers to run on a VM
-├── docker/
+├── deploy/                  # Everything that runs: one folder per part (compose file is in the root)
+│   ├── pipeline/
+│   │   ├── Dockerfile       # Image for the pipeline (CD publishes it)
+│   │   └── run_on_vm.sh     # Run one pipeline step inside Docker on a VM
+│   ├── airflow/
+│   │   ├── dags/stylehub_daily.py  # Daily DAG: start -> ingest -> bronze -> silver -> gold -> end
+│   │   ├── Dockerfile       # Image for Airflow, with the pipeline packages inside
+│   │   └── README.md        # How to run Airflow
 │   └── postgres/init/       # Sample data for the local Postgres
+├── dbt/                     # Silver and Gold as dbt models, with tests
+│   ├── models/              # dbt Labs layout, see the table below
+│   │   ├── staging/stylehub/       # stg_stylehub__*: 1:1 with Bronze, latest row, cast types
+│   │   ├── intermediate/           # int_*: joins and totals
+│   │   └── marts/                  # core/ (dim_, fact_) and reporting/ (Gold business tables)
+│   ├── tests/               # Checks that compare layers and test values
+│   └── README.md            # How to run dbt
 ├── docs/
+│   ├── README.md            # Start here: which page to read for which goal
+│   ├── assets/              # Icons used in the README
 │   ├── ARCHITECTURE.md      # Layers, star schema, Airbyte sync modes
-│   ├── architecture.html    # Data flow diagram (open in a browser)
-│   ├── code-walkthrough.html # Line-by-line guide to the main code (open in a browser)
+│   ├── html/                # Pages to open in a browser
+│   │   ├── architecture.html       # Data flow diagram
+│   │   └── code-walkthrough.html   # Line-by-line guide to the main code
 │   ├── RUN_END_TO_END.md    # Step-by-step: run the whole pipeline
 │   ├── CD.md                # Publish the image and let the VM pull it
 │   ├── DECISIONS.md         # Design choices and measurements
@@ -110,42 +147,48 @@ flowchart LR
 ├── src/
 │   ├── python/
 │   │   ├── common/
-│   │   │   └── config.py            # Settings and SQL placeholders
-│   │   ├── sources/                 # 1. Sources: how to read each source
-│   │   │   ├── postgres.py          # Connect to Postgres and run a query
-│   │   │   └── stylehub_api.py      # StyleHub API: key, pages, retries
-│   │   ├── ingestion/               # 2. Ingestion: source -> Raw Zone, unchanged
-│   │   │   ├── database.py          # Postgres -> Raw Zone: incremental or full load
-│   │   │   ├── api.py               # StyleHub API -> Raw Zone: one day at a time
+│   │   │   ├── config.py            # Settings and SQL placeholders
+│   │   │   └── retry.py             # Try again, with growing waits, after a short BigQuery or GCS error
+│   │   ├── ingestion/               # 1. Ingestion: source -> Raw Zone, unchanged
+│   │   │   ├── csv_tables.py        # Course tables -> Raw Zone: full load (used by the pipeline)
 │   │   │   ├── schema_check.py      # Stop when the source changes its columns
-│   │   │   └── raw_writer.py        # Write Parquet and metadata columns to GCS
-│   │   ├── storage/                 # 3. Storage: bucket, datasets, Bronze
-│   │   │   ├── setup_gcp.py         # Create the bucket and the datasets (session 1)
-│   │   │   ├── load_csv.py          # Local CSV -> bucket -> BigQuery (session 1)
-│   │   │   └── load_bronze.py       # Raw Zone -> Bronze (append)
-│   │   ├── transform/               # 4. Transform: run SQL and checks
-│   │   │   ├── run_sql.py           # Run the SQL files of one layer
-│   │   │   └── checks.py            # Run the data checks
+│   │   │   ├── raw_writer.py        # Write Parquet and metadata columns to GCS
+│   │   │   └── optional/            # NOT used by run_daily. Kept for a live Postgres or API source
+│   │   │       ├── database.py      # Postgres -> Raw Zone: incremental or full load
+│   │   │       ├── api.py           # StyleHub API -> Raw Zone
+│   │   │       └── sources/         # The clients: postgres.py and stylehub_api.py
+│   │   ├── storage/                 # 2. Storage: the daily Bronze steps
+│   │   │   ├── load_bronze.py       # Raw Zone -> Bronze (latest batch of the day)
+│   │   │   ├── copy_events.py       # Copy events from the US dataset to Bronze (one time)
+│   │   │   ├── events_bronze.py     # Build events_partitioned if it is missing
+│   │   │   └── setup/               # Run once by hand, not by run_daily (session 1)
+│   │   │       ├── setup_gcp.py     # Create the bucket and the datasets
+│   │   │       └── load_csv.py      # Local CSV -> bucket -> BigQuery
+│   │   ├── transform/               # 3. Transform: dbt for Silver and Gold
+│   │   │   ├── run_sql.py           # Run the SQL files of the Bronze layer
+│   │   │   └── run_dbt.py           # Run dbt for Silver or Gold (models + tests)
 │   │   └── orchestration/           # Runs the stages in order
 │   │       ├── run_daily.py         # Run all steps for one date, with logs and alerts
-│   │       ├── backfill.py          # Run the steps for a range of past dates
-│   │       ├── runs.py              # Save one row per step in BigQuery
-│   │       └── alerts.py            # Send a message when a step fails
+│   │       ├── runs.py              # Save one row per step in BigQuery (keeps a file copy if that fails)
+│   │       ├── alerts.py            # Send a message when a step fails
+│   │       └── check_freshness.py   # Alert when no good run happened lately
 │   ├── sql/
 │   │   ├── bronze/                  # Table setup (partitioned events)
-│   │   ├── silver/                  # Facts and dimensions
-│   │   ├── gold/                    # Business tables
-│   │   ├── ops/                     # The pipeline_runs table
-│   │   └── checks/                  # Quality checks
-│   └── tests/                       # Unit tests and integration tests
+│   │   └── ops/                     # The pipeline_runs table
+│   └── tests/                       # Same stages as src/python
+│       ├── ingestion/               # Raw Zone writer, schema check, full load
+│       │   └── optional/            # Postgres and API code: clients, window, integration tests
+│       ├── storage/                 # Bronze load, events copy
+│       │   └── setup/               # Bucket, datasets, CSV load
+│       ├── transform/               # SQL files, dbt project, business rules
+│       ├── orchestration/           # Run history, alerts, Airflow DAG
+│       └── common/                  # Config
 ├── .dockerignore
-├── .env.example             # Names of the settings. Copy to .env.
+├── .env.example             # Names of ALL settings (pipeline and Airflow). Copy to secrets/.env.
 ├── .gitignore
 ├── .pre-commit-config.yaml  # Checks that run before each commit
 ├── CLAUDE.md                # Rules for AI assistants and contributors
-├── Dockerfile               # Image for the pipeline
-├── docker-compose.yaml      # Local Postgres with sample data
-├── Makefile                 # Short commands
+├── docker-compose.yaml      # ONE compose file. Profiles: dev (sample Postgres), pipeline, airflow
 ├── pyproject.toml           # Dependencies and tool settings
 ├── README.md
 └── uv.lock                  # Exact package versions
@@ -164,11 +207,10 @@ flowchart LR
 | [uv](https://docs.astral.sh/uv/) | Installs the packages. |
 | Google Cloud project | Turn on the BigQuery and Cloud Storage APIs. |
 | GCS bucket | Holds the Raw Zone. |
-| Three BigQuery datasets | `stylehub_bronze`, `stylehub_silver`, `stylehub_gold`. Use the same location as the bucket. |
+| Four BigQuery datasets | `stylehub_bronze`, `stylehub_silver`, `stylehub_gold`, `stylehub_ops`. Use the same location as the bucket. `setup_gcp` creates them. |
 | Service account key (JSON) | Save it in `secrets/`. Give the account BigQuery Job User, BigQuery Data Editor and Storage Object Admin. |
-| Read-only Postgres access | Host, database, user and password come from the course. |
+| Course CSV files | Five files in `data/raw_data/`. Git ignores them. Postgres access is only needed for the optional Postgres path. |
 | Docker Desktop (optional) | For the local Postgres and the image. You can try ingestion without any cloud account. |
-| Make (optional) | Not installed on Windows by default. Every command below also works without it. |
 
 > [!IMPORTANT]
 > The StyleHub dataset belongs to the course. This repo holds only code. Do not commit course data or course materials.
@@ -178,7 +220,7 @@ flowchart LR
 ```powershell
 git clone https://github.com/wayneworkspace/PROJECT_Stylehub-Data-Platform.git
 cd PROJECT_Stylehub-Data-Platform
-uv sync --extra dev
+uv sync --extra dev --extra dbt
 copy .env.example secrets\.env
 uv run pytest
 ```
@@ -191,7 +233,7 @@ The local Postgres holds a small set of sample orders. You can test the extracti
 
 ```powershell
 docker compose up -d postgres
-docker compose run --rm pipeline python -m ingestion.database --table orders --date 2026-10-01 --dry-run
+docker compose run --rm pipeline python -m ingestion.optional.database --table orders --date 2026-10-01 --dry-run
 ```
 
 The second command should print a line like `orders 2026-10-01: 24 rows (incremental, 0.1s, dry run, nothing written)`. To run the integration tests against the same database:
@@ -200,10 +242,10 @@ The second command should print a line like `orders 2026-10-01: 24 rows (increme
 $env:PG_HOST = "localhost"; $env:PG_PORT = "5432"; $env:PG_DATABASE = "stylehub"
 $env:PG_USER = "stylehub"; $env:PG_PASSWORD = "stylehub_local"
 uv run pytest -m integration
-docker compose down -v
+docker compose --profile dev --profile pipeline down -v
 ```
 
-To build the image alone, run `docker build -t stylehub-pipeline .`
+To build the image alone, run `docker build -f deploy/pipeline/Dockerfile -t stylehub-pipeline .`
 
 > [!NOTE]
 > The password `stylehub_local` is for this throwaway local database only. The port is open to your own computer and no one else.
@@ -213,75 +255,68 @@ To build the image alone, run `docker build -t stylehub-pipeline .`
 Put the course CSV files in `data/raw_data/` (Git ignores this folder). Fill in `GCP_PROJECT_ID`, `GCS_BUCKET` and `GCP_LOCATION` in `secrets\.env` first.
 
 ```powershell
-uv run python -m storage.setup_gcp --dry-run   # only print what would be created
-uv run python -m storage.setup_gcp             # create the bucket and the datasets
-uv run python -m storage.load_csv --file data/raw_data/orders.csv   # one file first
-uv run python -m storage.load_csv              # every CSV file in data/raw_data
+uv run python -m storage.setup.setup_gcp --dry-run   # only print what would be created
+uv run python -m storage.setup.setup_gcp             # create the bucket and the datasets
+uv run python -m storage.setup.load_csv --file data/raw_data/orders.csv   # one file first
+uv run python -m storage.setup.load_csv              # every CSV file in data/raw_data
 ```
 
 `load_csv` prints the file size and the BigQuery table size, so you can answer the exercise question. `events.csv` is about 16 GB, so uploading it takes a long time.
 
 ### First run
 
-```powershell
-$d = "2026-10-01"
-
-# One time: build the partitioned events table (scans the whole source table)
-uv run python -m transform.run_sql bronze
-
-# Postgres -> Raw Zone -> Bronze
-uv run python -m ingestion.database --table orders --date $d
-uv run python -m ingestion.database --table order_items --date $d
-uv run python -m storage.load_bronze --date $d --table orders
-uv run python -m storage.load_bronze --date $d --table order_items
-
-# Bronze -> Silver -> Gold, then checks
-uv run python -m transform.run_sql silver
-uv run python -m transform.run_sql gold
-uv run python -m transform.checks
-```
-
-To see how many bytes a layer would scan without running it, add `--dry-run`:
+After `load_csv` has put the five tables in the `stylehub` dataset, one command runs everything:
 
 ```powershell
-uv run python -m transform.run_sql gold --dry-run
+$env:GOOGLE_APPLICATION_CREDENTIALS = "secrets\<your-key>.json"   # only for one-off python -c commands
+uv run python -m orchestration.run_daily --date 2026-10-01
 ```
 
-> [!WARNING]
-> `orchestration.run_daily` and `storage.load_bronze` without `--table` load all five tables. This repo only creates Raw files for `orders` and `order_items`. The other three tables must come from Airbyte or a manual upload first. Until then, use `--table`.
+The four steps are:
 
-If you have Make, these shortcuts do the same work:
+| Step | What it does |
+|---|---|
+| `ingest` | Reads `orders`, `order_items`, `products` and `users` from the `stylehub` dataset. Checks the columns. Writes Parquet files to the Raw Zone. |
+| `bronze` | Builds the partitioned `events` table if it is missing (copy, then SQL). Loads the latest Raw batch of the day into Bronze. |
+| `silver` | Runs the Silver dbt models and their tests. |
+| `gold` | Runs the Gold dbt models and their tests. |
 
-```bash
-make ingest DATE=2026-10-01
-make bronze DATE=2026-10-01
-make silver
-make gold
-make check
+The first run is slow because it builds `events` (about 108 million rows). Later runs skip that part, and `fact_events` is incremental: it rebuilds only the newest 3 days. To rebuild all of it, run `dbt build --full-refresh --select fact_events` inside `dbt/`.
+
+To run one step, or to see what the `events` build would scan:
+
+```powershell
+uv run python -m orchestration.run_daily --date 2026-10-01 --from-step silver --to-step gold
+uv run python -m transform.run_sql bronze --dry-run
 ```
+
+> [!NOTE]
+> The `stylehub` dataset may be in a different region (for example US) from Bronze. A BigQuery query cannot read one region and write to another. That is why `events` is copied first.
 
 ### Daily run
 
 | Option | How |
 |---|---|
 | By hand | `uv run python -m orchestration.run_daily --date 2026-10-01` |
-| Load the API table | `uv run python -m ingestion.api --table users --date 2026-10-01 --dry-run`. Needs `API_KEY` in `secrets/.env`. Remove `--dry-run` to write to the Raw Zone. |
-| Load a whole table | Add `--full-load`: `uv run python -m ingestion.database --table orders --date 2026-10-01 --full-load`. Add `--dry-run` to only count. |
-| Run past dates again | `uv run python -m orchestration.backfill --from-date 2026-09-25 --to-date 2026-10-01`. Runs the ingest step for each date. |
+| Postgres or API source (not in `run_daily`) | `uv run python -m ingestion.optional.api --table users --date 2026-10-01 --dry-run`. Needs `API_KEY` in `secrets/.env`. Remove `--dry-run` to write to the Raw Zone. |
+| Load a whole table | Add `--full-load`: `uv run python -m ingestion.optional.database --table orders --date 2026-10-01 --full-load`. Add `--dry-run` to only count. |
+| Run past dates again | With Airflow: `airflow dags backfill stylehub_daily -s 2026-09-25 -e 2026-10-01` (see [deploy/airflow/README.md](deploy/airflow/README.md)). Or run `run_daily --date <day>` for each day. |
 | Source changed its columns | Ingest stops and names the column. Add `--on-schema-change absorb` to go on anyway (a missing column becomes NULL). |
-| Start or stop at a step | Add `--from-step silver` or `--to-step bronze` (steps: ingest, bronze, silver, gold, checks). |
+| Start or stop at a step | Add `--from-step silver` or `--to-step bronze` (steps: ingest, bronze, silver, gold). |
+| dbt for Silver and Gold | `uv sync --extra dbt` first. `run_daily` calls dbt in the silver and gold steps, and dbt runs its tests. See [dbt/README.md](dbt/README.md). |
 | See what ran | Each step is saved in the BigQuery table `stylehub_ops.pipeline_runs`: status, time, rows and error. |
 | Get alerts | Set `ALERT_WEBHOOK_URL` to a Discord webhook. A failed step sends one message. |
-| On a schedule | Use the systemd timers in `deploy/`. See [docs/DEPLOY_VM.md](docs/DEPLOY_VM.md). Airflow is a later option (see [docs/EXTENDING.md](docs/EXTENDING.md)). |
+| On a schedule | Use Airflow (one DAG, `start`, four steps, `end`): [deploy/airflow/README.md](deploy/airflow/README.md). You can test the whole DAG for one day with `airflow dags test stylehub_daily 2026-10-15` inside the scheduler container. |
 
 ### Checks before you commit
 
 | Check | How | When it runs |
 |---|---|---|
 | Pre-commit hooks (ruff, gitleaks, file checks) | Run `uvx pre-commit install` once. | On every `git commit` |
+| Lint | `uv run ruff check .` | You run it before you push |
 | Unit tests | `uv run pytest` | You run them before you push |
 | Integration tests | `uv run pytest -m integration` (needs the Docker Postgres) | You run them before you push |
-| CI on GitHub | Same checks, plus a Docker build | On every push to `main` |
+| CI on GitHub | Same checks, plus `dbt parse` and a Docker build | On every push to `main` |
 
 See [docs/DEVOPS.md](docs/DEVOPS.md) for what each CI job does.
 
@@ -290,20 +325,20 @@ See [docs/DEVOPS.md](docs/DEVOPS.md) for what each CI job does.
 | Item | Where | Notes |
 |---|---|---|
 | `GCP_PROJECT_ID` | `secrets/.env` | Required. |
-| `GCP_LOCATION` | `secrets/.env` | Where `setup_gcp` creates the bucket and datasets. Default `asia-southeast1`. Use one location for all of them. |
+| `GCP_LOCATION` | `secrets/.env` | Where `setup_gcp` creates the bucket and datasets. Default `asia-southeast1`. Use one location for all of them. The `stylehub` course dataset may be elsewhere. |
 | `GCS_BUCKET` | `secrets/.env` | Required. Bucket name only, with no `gs://`. |
 | `GOOGLE_APPLICATION_CREDENTIALS` | `secrets/.env` | Path to the service account JSON, for example `secrets/gcp-sa.json`. A relative path is counted from the project folder. Never commit it. |
 | `RAW_PREFIX` | `secrets/.env` | Folder for Raw files. Default `raw/stylehub`. |
 | `BQ_SOURCE` | `secrets/.env` | Dataset with the course's original tables, such as `events`. Default `stylehub`. |
 | `BQ_BRONZE`, `BQ_SILVER`, `BQ_GOLD` | `secrets/.env` | Dataset names. Defaults `stylehub_bronze`, `stylehub_silver`, `stylehub_gold`. |
-| `PG_HOST`, `PG_PORT`, `PG_DATABASE`, `PG_USER`, `PG_PASSWORD` | `secrets/.env` | Read-only Postgres source. Never commit the password. |
+| `PG_HOST`, `PG_PORT`, `PG_DATABASE`, `PG_USER`, `PG_PASSWORD` | `secrets/.env` (optional) | Only for the Postgres path. Never commit the password. |
 | `PG_SSLMODE` | `secrets/.env` (optional) | `require` when the server demands TLS (the course server does). Default `prefer`. |
 | `LOCAL_PG_PASSWORD` | Your shell (optional) | Password for the local Docker Postgres. Default `stylehub_local`. |
 | `BQ_OPS` | `secrets/.env` | Dataset for `pipeline_runs`. Default `stylehub_ops`. Create it before the first run. |
 | `ALERT_WEBHOOK_URL` | `secrets/.env` (optional) | Discord webhook for failure alerts. It is a secret. Leave it empty to turn alerts off. |
-| Watermark column | `WATERMARK` in `src/python/ingestion/database.py` | One column per table. Both tables use `updated_at` for now. |
-| Lookback days | `LOOKBACK_DAYS` in `src/python/ingestion/database.py` | Default 1. |
-| Raw folder names | `RAW_DIR` in `src/python/common/config.py` | Needed when a folder name differs from the table name. `products` uses `products_api`. |
+| Watermark column | `WATERMARK` in `src/python/ingestion/optional/database.py` | Postgres path only. The CSV path does not use it. |
+| Lookback days | `LOOKBACK_DAYS` in `src/python/ingestion/optional/database.py` | Default 1. |
+| Raw folder names | `RAW_DIR` in `src/python/common/config.py` | Needed when a folder name differs from the table name. Empty now. |
 
 > [!WARNING]
 > Never commit `secrets/` (it holds `.env` and the key file), GCP keys or passwords. `.gitignore` blocks them, but check `git status` before each commit.
@@ -317,13 +352,19 @@ See [docs/DEVOPS.md](docs/DEVOPS.md) for what each CI job does.
 | `SchemaError: ... the source schema changed` | A column is missing or has another type. Read the message, then fix `EXPECTED_SCHEMAS` in `src/python/ingestion/schema_check.py` or the SQL. Use `--on-schema-change absorb` only on purpose. |
 | `KeyError: 'GCP_PROJECT_ID'` (or `PG_HOST`) | `secrets/.env` is missing or incomplete. Copy `.env.example` to `secrets/.env` and fill it in. |
 | `403` or "permission denied" | The service account lacks a role. Add the roles in the prerequisites table. |
-| `Not found: Dataset ...` | A dataset does not exist. Create all three datasets in the bucket's location. |
-| `load_bronze` says no files match | No Raw files exist for that table and date. Run ingestion first, or use `--table` for a table you have. |
-| "Unrecognized name" in a Silver query | The SQL used a guessed column name. Check the real columns in `INFORMATION_SCHEMA.COLUMNS` and edit the SQL file. |
-| Bronze row count grows after a re-run | This is by design. Silver removes the duplicates. |
-| `make` is not found on Windows | Use the `uv run` commands. |
+| `Not found: Dataset ...` | A dataset does not exist, or it is in another region than the query. Create the dataset, or check its location. |
+| `Dataset ... was not found in location ...` | A query reads one region and writes to another. For `events`, run `python -m storage.events_bronze`. |
+| `Provided Schema does not match Table ... Cannot add fields` | An old Bronze table has other columns. If it holds no data you need, delete it in BigQuery and run the bronze step again. |
+| `DefaultCredentialsError` in a `python -c` command | Set `$env:GOOGLE_APPLICATION_CREDENTIALS` in that PowerShell window. `run_daily` reads it from `secrets/.env` itself. |
+| `cannot import name 'storage' from 'google.cloud'` | The `.venv` is damaged, often by OneDrive. Run `uv sync --extra dev --extra dbt --reinstall`. |
+| `load_bronze` says no files match | No Raw files exist for that table and date. Run the ingest step first. |
+| "Unrecognized name" in a dbt model | The model used a wrong column name. Check the real columns in `INFORMATION_SCHEMA.COLUMNS` and edit the model. |
+| `dbt` is not found | Run through `uv run`, or `uv sync --extra dbt` first. `run_dbt` looks for `dbt` on the PATH. |
+| Bronze row count grows on a new day | Each day adds one full snapshot. This is by design. Re-running the same day does not add rows. |
 | `pytest` says tests were "deselected" | Integration tests are off by default. Start the Docker Postgres and add `-m integration`. |
 | `docker compose up` says port 5432 is in use | Another Postgres runs on your computer. Stop it, or change the port in `docker-compose.yaml`. |
+| `docker compose up` starts nothing | Every service has a profile. Name the service (`up -d postgres`) or add `--profile airflow`. |
+| `airflow-init` stops with "set AIRFLOW_ADMIN_PASSWORD in secrets/.env" | You forgot `--env-file secrets/.env`, or an `AIRFLOW_` value in that file is empty. |
 | A commit fails and files changed | A pre-commit hook fixed them, for example trailing spaces. Run `git add` again and commit again. |
 | A commit is blocked by gitleaks | It found something that looks like a key. Remove the secret first. If it was a real key, rotate it. |
 
@@ -331,35 +372,42 @@ See [docs/DEVOPS.md](docs/DEVOPS.md) for what each CI job does.
 
 | Area | Limitation |
 |---|---|
-| Testing | Unit tests cover paths, date windows and SQL placeholders. Integration tests cover extraction from a sample Postgres. The SQL has never run on real BigQuery data. |
-| Schema | The columns that `src/sql/silver/` reads for `users` and `products` match the headers of the course CSV files. The CSV files for `orders` and `order_items` have other columns (for example `order_id`, and no `updated_at`), so Silver for these tables assumes the Postgres schema. `shipments` has no CSV file. `EXPECTED_SCHEMAS` was written from the sample data in `docker/`. Compare both with the real source before the first real run. |
-| Setup scripts | `setup_gcp` and `load_csv` are tested with mocks only. They have not run on a real GCP project. BigQuery detects column types from the CSV, so check them. |
-| Sources | Python ingestion covers `orders` and `order_items` (database) and `users` (API). `products` (a file) and `shipments` need Airbyte or a manual upload. The API code was written without a real API key, so it has not run against the real API. |
-| Watermark | `order_items` uses `updated_at` without a check on real data. See `docs/DECISIONS.md`. |
+| Testing | Run `uv run pytest` for the unit tests. dbt (the old 12-model layout), the Raw and Bronze steps and an earlier version of the Airflow DAG have run on a real BigQuery project. The new DAG operators, the new dbt folder layout (19 models), the extra dbt tests, the incremental `fact_events`, the Bronze load-then-delete logic, the retry helper, the merged compose file and the freshness check have not run there yet. The Postgres integration tests need the Docker Postgres. Gold numbers were not checked by hand against the CSV files. |
+| Schema | `EXPECTED_SCHEMAS` covers the four course tables as BigQuery detected them. New columns only give a warning. `shipments` has no source, so `fact_shipments` is built from order dates (shipped orders only). |
+| Setup scripts | `setup_gcp` and `load_csv` have run on a real project. BigQuery detects column types from the CSV, so check them again if the files change. |
+| Sources | The pipeline reads the course tables that `load_csv` put in BigQuery. The Postgres and API code is kept but has not run on real sources, and `run_daily` does not call it. |
+| Watermark | Not used for CSV data (no `updated_at`). Every run reads whole tables. |
 | Deletes | The pipeline cannot see rows that the source deletes. |
-| Scheduling | Timers run each job once a day. There are no retries. A failed step stops the run until the next day or a manual run. |
+| Scheduling | Airflow runs the DAG once a day. Each task retries once. After that, a failed step stops the run until the next day or a manual run. |
 | Logging | `run_daily` uses `logging`. The ingestion, Bronze and SQL scripts still use `print` when you run them alone. |
-| Run history | Only `run_daily` writes to `pipeline_runs`. Recording is best effort: if BigQuery is down, the row is lost. Only the Bronze step counts rows. |
-| Alerts | One Discord message per failed step. Nothing alerts you if the VM or the timer does not run at all. |
-| VM | The VM files in `deploy/` have not run on a real GCP project. |
+| Run history | Only `run_daily` writes to `pipeline_runs`. If BigQuery is down, the row waits in `logs/pipeline_runs_pending.jsonl` and goes with the next row. In a throwaway container that file is lost with the container. Only the Bronze step counts rows. |
+| Alerts | One Discord message per failed step. `check_freshness` (a GitHub Actions schedule) alerts when no good run happened in 26 hours. It needs a one-time setup and has not run yet. |
+| Retries in Python | `retry.py` retries short BigQuery and GCS errors up to 4 times (waits of about 2, 4 and 8 seconds). Permission, missing table and bad SQL errors fail at once. It is tested with fakes only. |
+| VM | Airflow runs on a laptop in Docker. It has not run on a GCP VM yet. |
 | Docker | CD pushes the image to Artifact Registry, but it has not run on a real GCP project or VM yet. |
-| Rebuilds | Silver and Gold use `CREATE OR REPLACE TABLE`. Each run rebuilds the whole table. |
-| Events | `events` is only partitioned. There is no `fact_events` or `dim_date` yet. |
+| Rebuilds | Silver and Gold tables are rebuilt in full on each run, except `fact_events`, which is incremental. |
+| Events | `fact_events` rebuilds the newest 3 days (`events_lookback_days`), so late events inside that window are kept. Later ones are missed until a `--full-refresh`. The first run (or `--full-refresh`) scans about 13 GB. There is no `dim_date` yet. The event dates (2019) do not overlap the order dates (2024 and later). |
+| Bronze copies | Each new day adds one snapshot of every table. `events_raw` (a 15 GB copy) stays in Bronze until you delete it. |
+| CI | The `dbt parse` step in CI has not run on GitHub yet. |
+| Service accounts | The roles for one account per job are designed in `docs/DEPLOY_VM.md`. The keys are not created. One key does everything now. |
 | Backups | None. |
 | Dependencies | `uv.lock` pins exact versions. Update them on purpose with `uv lock --upgrade`. |
 | Scale | A learning project that uses a course dataset. Do not use it for real business reports. |
 
 ## Roadmap
 
-- [ ] Run the SQL on real BigQuery data and fix column names
+- [x] Run the SQL and dbt models on real BigQuery data and fix column names
 - [ ] Measure the `events` queries and fill in `docs/DECISIONS.md`
-- [ ] Run the API ingestion on the real StyleHub API, then add Python ingestion for `products` (file) and `shipments`
-- [ ] Run `setup_gcp` and `load_csv` on a real project and check the detected column types
-- [ ] Add `fact_events` and `dim_date`
+- [ ] Run the API and Postgres ingestion on real sources (the CSV path is done)
+- [x] Run `setup_gcp` and `load_csv` on a real project
+- [x] Add `fact_events`
+- [ ] Add `dim_date`
 - [ ] Add daily sample data so the pipeline runs on new rows
 - [ ] Add an architecture diagram image
 - [x] Add logging, a run history table and failure alerts
 - [ ] Run the pipeline on a small GCP VM and fix what breaks (files are ready in `deploy/`)
 - [ ] Add retries and an alert for a job that did not run
+- [ ] Create one service account per job
 - [ ] Describe the bucket, datasets and service accounts in Terraform
-- [ ] Add dbt, Airflow and Spark (see [docs/EXTENDING.md](docs/EXTENDING.md))
+- [x] Add dbt and an Airflow DAG (run end to end on BigQuery from a laptop)
+- [ ] Add Spark (see [docs/EXTENDING.md](docs/EXTENDING.md))

@@ -11,6 +11,8 @@ from datetime import UTC, datetime
 import pandas as pd
 from google.cloud import storage
 
+from common.retry import call_with_retry
+
 
 def new_batch_id() -> str:
     return datetime.now(UTC).strftime("%Y%m%dT%H%M%S") + "-" + uuid.uuid4().hex[:6]
@@ -36,9 +38,14 @@ def write_raw(df: pd.DataFrame, table: str, data_date: str, source: str) -> str:
 
     buffer = io.BytesIO()
     df.to_parquet(buffer, index=False)
-    buffer.seek(0)
 
     bucket = storage.Client().bucket(os.environ["GCS_BUCKET"])
     path = raw_path(table, data_date, batch_id)
-    bucket.blob(path).upload_from_file(buffer, content_type="application/octet-stream")
+    blob = bucket.blob(path)
+
+    def upload() -> None:
+        buffer.seek(0)  # a retry must read the file from the start again
+        blob.upload_from_file(buffer, content_type="application/octet-stream")
+
+    call_with_retry(upload)
     return f"gs://{bucket.name}/{path}"

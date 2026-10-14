@@ -2,9 +2,9 @@
 
 ## Project
 StyleHub Data Platform on GCP, built following a 5-session curriculum.
-Source (Postgres + API) → Raw Zone (GCS) → Bronze → Silver (fact/dim) → Gold (BigQuery).
-Only the curriculum stack is used for now: Python, SQL, GCS, BigQuery, Airbyte.
-dbt, Airflow and Spark are later extensions: do not add them unless asked (see `docs/EXTENDING.md`).
+Source (course CSV tables in BigQuery; Postgres and API are optional) → Raw Zone (GCS) → Bronze → Silver (fact/dim) → Gold (BigQuery).
+Curriculum stack: Python, SQL, GCS, BigQuery, Airbyte. dbt (`dbt/`) and Airflow (`deploy/airflow/`) are added on top.
+Spark is a later extension: do not add it unless asked (see `docs/EXTENDING.md`).
 
 ## How to work (these rules come first)
 Rules to avoid common AI coding mistakes. They favor caution over speed. For a trivial task, use judgment.
@@ -45,11 +45,11 @@ These rules are working if diffs are smaller, there are fewer rewrites, and ques
 - Keep each change small and say how to check it.
 
 ## Repo conventions
-- Organize Python by stage of the data flow, in `src/python/`: `sources/` (read a source), `ingestion/` (source to Raw Zone: `database.py`, `api.py`), `storage/` (bucket, datasets, Bronze load), `transform/` (run SQL, checks), `orchestration/` (run order, logs, alerts, backfill), `common/` (settings). Serving is the Gold tables in BigQuery; add a `serving/` folder only when code is needed.
-- SQL lives in `src/sql/{bronze,silver,gold,checks,ops}`. Tests live in `src/tests/`.
+- Organize Python by stage of the data flow, in `src/python/`: `ingestion/` (source to Raw Zone: `csv_tables.py` is the real flow; `ingestion/optional/` holds `database.py`, `api.py` and the `sources/` clients, which `run_daily` does not call), `storage/` (the daily Bronze steps; `storage/setup/` holds the scripts you run once by hand: `setup_gcp`, `load_csv`), `transform/` (dbt for Silver and Gold, SQL for Bronze), `orchestration/` (run order, logs, alerts), `common/` (settings). Serving is the Gold tables in BigQuery; add a `serving/` folder only when code is needed.
+- Bronze and ops SQL live in `src/sql/{bronze,ops}`. Silver and Gold are dbt models in `dbt/models/`, laid out like dbt Labs: `staging/stylehub/` (`stg_stylehub__*`, the only place that calls `source()`), `intermediate/` (`int_*`), `marts/core/` (`dim_`, `fact_`, Silver dataset) and `marts/reporting/` (Gold dataset). Tags, materialization and dataset are set per folder in `dbt_project.yml`, not in each model. YAML files are named `_<folder>__models.yaml` and `_<source>__sources.yaml`. Python tests live in `src/tests/`, in one folder per stage (the same names as `src/python/`). The VM script lives in `deploy/pipeline/`.
 - Follow PEP 8: 4 spaces, lines up to 100 characters, `snake_case` for functions and variables, `CapWords` for classes, imports sorted (ruff checks this). Every module starts with a docstring that says what it does and how to run it.
 - Commit using Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`).
-- Name YAML files with the `.yaml` extension, never `.yml` (for example `ci.yaml`, `docker-compose.yaml`, Airbyte `values.yaml`).
+- Name YAML files with the `.yaml` extension, never `.yml` (for example `ci.yaml`, `docker-compose.yaml`, Airbyte `values.yaml`). The only exceptions are `dbt/dbt_project.yml` and `dbt/profiles.yml`: dbt refuses other names for these two.
 
 ## Contract between layers (do not break, so extending never means rewriting)
 - Every step runs on its own as a CLI with `--date` and is safe to re-run.
@@ -66,9 +66,9 @@ These rules are working if diffs are smaller, there are fewer rewrites, and ques
 ## SQL
 - Write with CTEs. No subqueries.
 - Number files by dependency order (`01_`, `02_`). Use `${project}`, `${bronze}`, `${silver}`, `${gold}`.
-- Bronze: append rows only, keep every version. Silver: one latest row per id, cast types correctly, state the grain at the top of the file.
+- Bronze: one snapshot per day. A re-run of the same day replaces that day's batch (no doubling); different days are kept. Large Silver facts (`fact_events`) are incremental. Silver: one latest row per id, cast types correctly, state the grain at the top of the file.
 - Gold: holds business rules (for example, exclude `Cancelled` orders). When a rule changes, edit Gold and leave Silver alone.
-- Every Silver table has a grain check in `src/sql/checks/`. Gold has a check that reconciles its totals with Silver.
+- Every Silver table has a grain test (`unique` + `not_null`) in `dbt/models/staging/stylehub/_stylehub__models.yaml` and `dbt/models/marts/core/_core__models.yaml`. Gold has a test (`dbt/tests/gold_matches_silver.sql`) that reconciles its totals with Silver.
 - Large tables (events) must have `PARTITION BY` and `CLUSTER BY`; record the reasoning and measurements in `docs/DECISIONS.md`.
 
 ## Security
@@ -79,14 +79,17 @@ These rules are working if diffs are smaller, there are fewer rewrites, and ques
 ## DevOps
 - Docker, CI and pre-commit are in place (`docs/DEVOPS.md`). Do not add other tools unless asked.
 - Install packages with `uv` and keep `uv.lock` in sync (`uv lock` after you change `pyproject.toml`).
+- Everything that runs lives in `deploy/`, one folder per part: `deploy/pipeline/` (Dockerfile, VM script), `deploy/airflow/` (DAG, Dockerfile, README) and `deploy/postgres/` (sample data). Add new parts the same way. There is ONE `docker-compose.yaml` at the root, split by profile (`dev`, `pipeline`, `airflow`). Do not add another compose file.
 - The Docker image must never contain secrets. Keep `.dockerignore` strict; pass secrets at run time (env vars or a read-only mount).
-- Integration tests need Postgres: `make up`, then `make test-integration`. If you change `docker/postgres/init/01_seed.sql`, update `src/tests/test_ingestion_integration.py` too.
+- Integration tests need Postgres: `docker compose up -d postgres`, then `uv run pytest -m integration`. If you change `deploy/postgres/init/01_seed.sql`, update `src/tests/ingestion/optional/test_ingestion_integration.py` too.
+- Airflow DAG (`deploy/airflow/dags/stylehub_daily.py`): `ExternalPythonOperator` for Python steps (ingest, bronze), `BashOperator` + CLI for dbt steps (silver, gold), `EmptyOperator` for `start` and `end`. Do not use `PythonOperator`: Airflow's pinned libraries clash with the pipeline's.
+- Every call to BigQuery or GCS that can fail for a short time goes through `call_with_retry` (`src/python/common/retry.py`). Pass a function that starts the whole job again.
 - Every pipeline step must go through `run_step` in `src/python/orchestration/run_daily.py`, so it is logged, recorded in `pipeline_runs` and alerted. Recording and alerts must never crash the pipeline.
 - `ALERT_WEBHOOK_URL` and service-account keys are secrets: never log or commit them. Keep one service account per job (see `docs/DEPLOY_VM.md`).
 - CI actions and pre-commit hooks are pinned to versions. Check the real latest tag before you bump one.
 
 ## Before saying it is done
-- `make lint` and `make test` must pass.
+- `uv run ruff check .` and `uv run pytest` must pass. There is no Makefile: use these `uv run` commands.
 - Run `uvx pre-commit run --all-files`.
 - Update the README/docs when behavior changes.
 - Read your own diff (`git diff`). Each changed line must trace to the request (rule 3).

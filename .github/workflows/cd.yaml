@@ -35,6 +35,6 @@ jobs:
       - name: Let Docker use that login
         run: gcloud auth configure-docker "${{ vars.GCP_REGION }}-docker.pkg.dev" --quiet
       - name: Build the image
-        run: docker build -t "$IMAGE:${{ github.event.workflow_run.head_sha }}" -t "$IMAGE:latest" .
+        run: docker build -f deploy/pipeline/Dockerfile -t "$IMAGE:${{ github.event.workflow_run.head_sha }}" -t "$IMAGE:latest" .
       - name: Push the image
         run: docker push --all-tags "$IMAGE"

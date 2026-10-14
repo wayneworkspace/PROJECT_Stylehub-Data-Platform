@@ -1,0 +1,101 @@
+version: 2
+
+# Marts in the Silver dataset: dimensions and facts. unique + not_null on the id is the grain check.
+models:
+  - name: dim_products
+    description: One row per product (grain). Latest snapshot from Bronze.
+    columns:
+      - name: id
+        data_tests: [unique, not_null]
+
+  - name: dim_users
+    description: One row per customer (grain).
+    columns:
+      - name: id
+        data_tests: [unique, not_null]
+
+  - name: fact_orders
+    description: One row per order (grain). Latest version of each order_id.
+    columns:
+      - name: order_id
+        data_tests: [unique, not_null]
+      - name: status
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [Processing, Shipped, Complete, Cancelled, Returned]
+              config:
+                severity: warn
+      - name: user_id
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_users')
+                field: id
+              config:
+                severity: warn
+
+  - name: fact_order_items
+    description: One row per order item (grain).
+    columns:
+      - name: id
+        data_tests: [unique, not_null]
+      - name: status
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [Processing, Shipped, Complete, Cancelled, Returned]
+              config:
+                severity: warn
+      - name: sale_price
+        data_tests: [not_null]
+      - name: order_id
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('fact_orders')
+                field: order_id
+              config:
+                severity: warn
+      - name: product_id
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_products')
+                field: id
+              config:
+                severity: warn
+
+  - name: fact_shipments
+    description: One row per shipped order (grain), built from the order dates.
+    columns:
+      - name: order_id
+        data_tests: [unique, not_null]
+
+  - name: fact_events
+    description: One row per event (grain). About 108 million rows.
+    columns:
+      - name: event_id
+        data_tests: [unique, not_null]
+      - name: event_type
+        data_tests: [not_null]
+      - name: event_time
+        data_tests: [not_null]
+      - name: user_id
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_users')
+                field: id
+              config:
+                severity: warn
+      - name: product_id
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_products')
+                field: id
+              config:
+                severity: warn

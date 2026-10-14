@@ -3,8 +3,9 @@
 The source team can add, drop, rename or retype a column and tell nobody. A pipeline that
 does not look will stay green and quietly give wrong numbers.
 
-EXPECTED_SCHEMAS lists the columns that src/sql/silver/ and the watermark need, with a simple type:
-int, number (decimal or float), text, datetime. How each kind of change is handled:
+EXPECTED_SCHEMAS lists the columns that the Silver models (dbt/models/staging/) need,
+with a simple type: int, number (decimal or float), text, datetime.
+How each kind of change is handled:
 
 | Change         | What it means                      | Reaction                                 |
 |----------------|------------------------------------|------------------------------------------|
@@ -31,22 +32,47 @@ ON_CHANGE_CHOICES = ("fail", "absorb")
 
 EXPECTED_SCHEMAS: dict[str, dict[str, str]] = {
     "orders": {
-        "id": "int",
+        "order_id": "int",
         "user_id": "int",
         "status": "text",
-        "total_amount": "number",
         "created_at": "datetime",
-        "updated_at": "datetime",
+        "shipped_at": "datetime",
+        "delivered_at": "datetime",
+        "returned_at": "datetime",
+        "num_of_item": "int",
     },
     "order_items": {
         "id": "int",
         "order_id": "int",
+        "user_id": "int",
         "product_id": "int",
-        "sale_price": "number",
-        "quantity": "int",
-        "amount": "number",
+        "status": "text",
         "created_at": "datetime",
-        "updated_at": "datetime",
+        "shipped_at": "datetime",
+        "delivered_at": "datetime",
+        "returned_at": "datetime",
+        "sale_price": "number",
+    },
+    "products": {
+        "id": "int",
+        "name": "text",
+        "category": "text",
+        "brand": "text",
+        "department": "text",
+        "cost": "number",
+        "retail_price": "number",
+    },
+    "users": {
+        "id": "int",
+        "email": "text",
+        "gender": "text",
+        "state": "text",
+        "city": "text",
+        "country": "text",
+        "latitude": "number",
+        "longitude": "number",
+        "traffic_source": "text",
+        "created_at": "datetime",
     },
 }
 
