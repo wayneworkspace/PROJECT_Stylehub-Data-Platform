@@ -2,14 +2,14 @@
 
 Each file returns 0 rows when it passes and rows when it fails.
 
-Usage: python -m pipeline.checks
+Usage: python -m transform.checks
 """
 
 import sys
 
 from google.cloud import bigquery
 
-from pipeline.config import SQL_DIR, render_sql, settings
+from common.config import SQL_DIR, render_sql, settings
 
 
 def run_checks() -> bool:

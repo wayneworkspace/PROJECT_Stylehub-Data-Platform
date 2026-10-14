@@ -9,10 +9,10 @@ The repo is split so new tools can be added without rewriting. What stays fixed 
 3. Each file in `src/sql/checks/` becomes a test: grain checks become `unique` + `not_null`, the rest become singular tests (same shape: "return rows if broken").
 4. Remove `make silver`, `make gold` and `make check` in favor of `dbt build`. `src/python/ingestion/` and `load_bronze` do not change.
 
-## Airflow (replaces `src/python/pipeline/run_daily.py`)
+## Airflow (replaces `src/python/orchestration/run_daily.py`)
 
 1. `STEPS` in `run_daily.py` is already the list of steps: ingest → bronze → silver → gold → checks. Each step becomes a task.
-2. Tasks call the existing CLIs (`python -m ingestion.incremental --date {{ ds }}`, `python -m pipeline.load_bronze --date {{ ds }}`, ...). No logic inside needs to change.
+2. Tasks call the existing CLIs (`python -m ingestion.database --date {{ ds }}`, `python -m storage.load_bronze --date {{ ds }}`, ...). No logic inside needs to change.
 3. Retries and alerts are configured in Airflow, not written in Python code.
 4. If dbt is already in use, the silver/gold/checks tasks merge into one `dbt build`.
 

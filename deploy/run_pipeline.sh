@@ -34,4 +34,4 @@ docker run --rm \
   -e GOOGLE_APPLICATION_CREDENTIALS=/app/secrets/gcp-sa.json \
   -v "${key_file}:/app/secrets/gcp-sa.json:ro" \
   "${image}" \
-  python -m pipeline.run_daily --date "${data_date}" --from-step "${from_step}" --to-step "${to_step}"
+  python -m orchestration.run_daily --date "${data_date}" --from-step "${from_step}" --to-step "${to_step}"

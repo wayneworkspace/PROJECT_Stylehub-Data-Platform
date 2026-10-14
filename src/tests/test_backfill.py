@@ -1,10 +1,11 @@
 from collections import defaultdict
 from datetime import date
 
+import pandas as pd
 import pytest
 
-from ingestion import incremental
-from pipeline import backfill, run_daily
+from ingestion import api, database
+from orchestration import backfill, run_daily
 from tests.test_schema_check import sample_frame
 
 
@@ -36,8 +37,14 @@ def raw_zone(monkeypatch):
         files.append((table, data_date, tuple(df["id"])))
         return f"gs://fake/{table}/date={data_date}/batch_id={len(files)}"
 
-    monkeypatch.setattr(incremental, "extract_day", fake_extract_day)
-    monkeypatch.setattr(incremental, "write_raw", fake_write_raw)
+    def fake_api_extract_day(table, data_date):
+        first = data_date.day * 10
+        return pd.DataFrame({"id": range(first - 1, first + 5)})
+
+    monkeypatch.setattr(database, "extract_day", fake_extract_day)
+    monkeypatch.setattr(database, "write_raw", fake_write_raw)
+    monkeypatch.setattr(api, "extract_day", fake_api_extract_day)
+    monkeypatch.setattr(api, "write_raw", fake_write_raw)
     monkeypatch.setattr(run_daily, "record_run", lambda row: True)
     monkeypatch.setattr(run_daily, "send_alert", lambda text: True)
     return files
@@ -59,7 +66,8 @@ def test_backfill_twice_adds_files_but_not_distinct_ids(raw_zone):
 
     backfill.backfill(start, end)  # run the whole range again
 
-    assert files_after_first == 7 * len(incremental.INCREMENTAL_TABLES)
+    tables_per_day = len(database.INCREMENTAL_TABLES) + len(api.API_TABLES)
+    assert files_after_first == 7 * tables_per_day
     assert len(raw_zone) == 2 * files_after_first  # append-only: every run writes new files
     assert distinct_ids_per_day(raw_zone) == after_first  # but the distinct ids did not change
     assert len(after_first) == files_after_first  # every (table, day) has data
@@ -71,7 +79,7 @@ def test_backfill_stops_at_the_first_failed_date(raw_zone, monkeypatch):
             raise RuntimeError("source is down")
         return sample_frame(table, ids=[1])
 
-    monkeypatch.setattr(incremental, "extract_day", fail_on_the_27th)
+    monkeypatch.setattr(database, "extract_day", fail_on_the_27th)
     with pytest.raises(RuntimeError):
         backfill.backfill(date(2026, 9, 25), date(2026, 9, 29))
     days_written = {data_date for _, data_date, _ in raw_zone}

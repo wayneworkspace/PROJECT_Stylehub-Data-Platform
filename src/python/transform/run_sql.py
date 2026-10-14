@@ -1,16 +1,16 @@
 """Run the SQL files of one layer in filename order (01_, 02_, ...).
 
 Usage:
-    python -m pipeline.run_sql silver
-    python -m pipeline.run_sql gold --dry-run     # only print bytes processed (session 1)
-    python -m pipeline.run_sql silver --file 04_fact_order_items.sql
+    python -m transform.run_sql silver
+    python -m transform.run_sql gold --dry-run     # only print bytes processed (session 1)
+    python -m transform.run_sql silver --file 04_fact_order_items.sql
 """
 
 import argparse
 
 from google.cloud import bigquery
 
-from pipeline.config import SQL_DIR, render_sql, settings
+from common.config import SQL_DIR, render_sql, settings
 
 LAYERS = ("bronze", "silver", "gold")
 

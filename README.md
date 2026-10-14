@@ -38,12 +38,12 @@ flowchart LR
 
 | Layer | Responsibility | Files |
 |---|---|---|
-| Ingestion | Read rows from Postgres. Write raw Parquet files. Nothing else. | `src/python/ingestion/` |
-| Load | Append Raw files into Bronze tables. | `src/python/pipeline/load_bronze.py` |
-| Transform | Run the SQL files of one layer in order. | `src/python/pipeline/run_sql.py`, `src/sql/` |
-| Checks | Run SQL checks. A check passes when it returns zero rows. | `src/python/pipeline/checks.py`, `src/sql/checks/` |
-| Runner | Run all steps for one date. | `src/python/pipeline/run_daily.py` |
-| Config | Read environment variables. Fill `${project}` and similar names in SQL. | `src/python/pipeline/config.py` |
+| Ingestion | Read rows from Postgres or the API. Write raw Parquet files. Nothing else. | `src/python/ingestion/` (`database.py`, `api.py`) |
+| Load | Append Raw files into Bronze tables. | `src/python/storage/load_bronze.py` |
+| Transform | Run the SQL files of one layer in order. | `src/python/transform/run_sql.py`, `src/sql/` |
+| Checks | Run SQL checks. A check passes when it returns zero rows. | `src/python/transform/checks.py`, `src/sql/checks/` |
+| Runner | Run all steps for one date. | `src/python/orchestration/run_daily.py` |
+| Config | Read environment variables. Fill `${project}` and similar names in SQL. | `src/python/common/config.py` |
 
 ### Data layers
 
@@ -97,6 +97,9 @@ flowchart LR
 │   └── postgres/init/       # Sample data for the local Postgres
 ├── docs/
 │   ├── ARCHITECTURE.md      # Layers, star schema, Airbyte sync modes
+│   ├── architecture.html    # Data flow diagram (open in a browser)
+│   ├── code-walkthrough.html # Line-by-line guide to the main code (open in a browser)
+│   ├── RUN_END_TO_END.md    # Step-by-step: run the whole pipeline
 │   ├── CD.md                # Publish the image and let the VM pull it
 │   ├── DECISIONS.md         # Design choices and measurements
 │   ├── DEPLOY_VM.md         # Run the pipeline on a GCP VM
@@ -104,24 +107,30 @@ flowchart LR
 │   ├── EXTENDING.md         # How to add dbt, Airflow and Spark later
 │   ├── ETL_VS_ELT.md        # Why ELT, and what to change when a business rule changes
 │   └── ROADMAP.md           # Plan by course session
-├── notebooks/               # Homework notebooks, one folder per session
 ├── src/
 │   ├── python/
-│   │   ├── ingestion/
-│   │   │   ├── incremental.py       # Postgres -> Raw Zone: incremental or full load
+│   │   ├── common/
+│   │   │   └── config.py            # Settings and SQL placeholders
+│   │   ├── sources/                 # 1. Sources: how to read each source
+│   │   │   ├── postgres.py          # Connect to Postgres and run a query
+│   │   │   └── stylehub_api.py      # StyleHub API: key, pages, retries
+│   │   ├── ingestion/               # 2. Ingestion: source -> Raw Zone, unchanged
+│   │   │   ├── database.py          # Postgres -> Raw Zone: incremental or full load
+│   │   │   ├── api.py               # StyleHub API -> Raw Zone: one day at a time
 │   │   │   ├── schema_check.py      # Stop when the source changes its columns
 │   │   │   └── raw_writer.py        # Write Parquet and metadata columns to GCS
-│   │   └── pipeline/
-│   │       ├── alerts.py            # Send a message when a step fails
-│   │       ├── backfill.py          # Run the steps for a range of past dates
-│   │       ├── checks.py            # Run the data checks
-│   │       ├── config.py            # Settings and SQL placeholders
-│   │       ├── load_bronze.py       # Raw Zone -> Bronze (append)
-│   │       ├── load_csv.py          # Local CSV -> bucket -> BigQuery (session 1)
+│   │   ├── storage/                 # 3. Storage: bucket, datasets, Bronze
+│   │   │   ├── setup_gcp.py         # Create the bucket and the datasets (session 1)
+│   │   │   ├── load_csv.py          # Local CSV -> bucket -> BigQuery (session 1)
+│   │   │   └── load_bronze.py       # Raw Zone -> Bronze (append)
+│   │   ├── transform/               # 4. Transform: run SQL and checks
+│   │   │   ├── run_sql.py           # Run the SQL files of one layer
+│   │   │   └── checks.py            # Run the data checks
+│   │   └── orchestration/           # Runs the stages in order
 │   │       ├── run_daily.py         # Run all steps for one date, with logs and alerts
-│   │       ├── run_sql.py           # Run the SQL files of one layer
+│   │       ├── backfill.py          # Run the steps for a range of past dates
 │   │       ├── runs.py              # Save one row per step in BigQuery
-│   │       └── setup_gcp.py         # Create the bucket and the datasets (session 1)
+│   │       └── alerts.py            # Send a message when a step fails
 │   ├── sql/
 │   │   ├── bronze/                  # Table setup (partitioned events)
 │   │   ├── silver/                  # Facts and dimensions
@@ -182,7 +191,7 @@ The local Postgres holds a small set of sample orders. You can test the extracti
 
 ```powershell
 docker compose up -d postgres
-docker compose run --rm pipeline python -m ingestion.incremental --table orders --date 2026-10-01 --dry-run
+docker compose run --rm pipeline python -m ingestion.database --table orders --date 2026-10-01 --dry-run
 ```
 
 The second command should print a line like `orders 2026-10-01: 24 rows (incremental, 0.1s, dry run, nothing written)`. To run the integration tests against the same database:
@@ -204,10 +213,10 @@ To build the image alone, run `docker build -t stylehub-pipeline .`
 Put the course CSV files in `data/raw_data/` (Git ignores this folder). Fill in `GCP_PROJECT_ID`, `GCS_BUCKET` and `GCP_LOCATION` in `secrets\.env` first.
 
 ```powershell
-uv run python -m pipeline.setup_gcp --dry-run   # only print what would be created
-uv run python -m pipeline.setup_gcp             # create the bucket and the datasets
-uv run python -m pipeline.load_csv --file data/raw_data/orders.csv   # one file first
-uv run python -m pipeline.load_csv              # every CSV file in data/raw_data
+uv run python -m storage.setup_gcp --dry-run   # only print what would be created
+uv run python -m storage.setup_gcp             # create the bucket and the datasets
+uv run python -m storage.load_csv --file data/raw_data/orders.csv   # one file first
+uv run python -m storage.load_csv              # every CSV file in data/raw_data
 ```
 
 `load_csv` prints the file size and the BigQuery table size, so you can answer the exercise question. `events.csv` is about 16 GB, so uploading it takes a long time.
@@ -218,28 +227,28 @@ uv run python -m pipeline.load_csv              # every CSV file in data/raw_dat
 $d = "2026-10-01"
 
 # One time: build the partitioned events table (scans the whole source table)
-uv run python -m pipeline.run_sql bronze
+uv run python -m transform.run_sql bronze
 
 # Postgres -> Raw Zone -> Bronze
-uv run python -m ingestion.incremental --table orders --date $d
-uv run python -m ingestion.incremental --table order_items --date $d
-uv run python -m pipeline.load_bronze --date $d --table orders
-uv run python -m pipeline.load_bronze --date $d --table order_items
+uv run python -m ingestion.database --table orders --date $d
+uv run python -m ingestion.database --table order_items --date $d
+uv run python -m storage.load_bronze --date $d --table orders
+uv run python -m storage.load_bronze --date $d --table order_items
 
 # Bronze -> Silver -> Gold, then checks
-uv run python -m pipeline.run_sql silver
-uv run python -m pipeline.run_sql gold
-uv run python -m pipeline.checks
+uv run python -m transform.run_sql silver
+uv run python -m transform.run_sql gold
+uv run python -m transform.checks
 ```
 
 To see how many bytes a layer would scan without running it, add `--dry-run`:
 
 ```powershell
-uv run python -m pipeline.run_sql gold --dry-run
+uv run python -m transform.run_sql gold --dry-run
 ```
 
 > [!WARNING]
-> `pipeline.run_daily` and `pipeline.load_bronze` without `--table` load all five tables. This repo only creates Raw files for `orders` and `order_items`. The other three tables must come from Airbyte or a manual upload first. Until then, use `--table`.
+> `orchestration.run_daily` and `storage.load_bronze` without `--table` load all five tables. This repo only creates Raw files for `orders` and `order_items`. The other three tables must come from Airbyte or a manual upload first. Until then, use `--table`.
 
 If you have Make, these shortcuts do the same work:
 
@@ -255,9 +264,10 @@ make check
 
 | Option | How |
 |---|---|
-| By hand | `uv run python -m pipeline.run_daily --date 2026-10-01` |
-| Load a whole table | Add `--full-load`: `uv run python -m ingestion.incremental --table orders --date 2026-10-01 --full-load`. Add `--dry-run` to only count. |
-| Run past dates again | `uv run python -m pipeline.backfill --from-date 2026-09-25 --to-date 2026-10-01`. Runs the ingest step for each date. |
+| By hand | `uv run python -m orchestration.run_daily --date 2026-10-01` |
+| Load the API table | `uv run python -m ingestion.api --table users --date 2026-10-01 --dry-run`. Needs `API_KEY` in `secrets/.env`. Remove `--dry-run` to write to the Raw Zone. |
+| Load a whole table | Add `--full-load`: `uv run python -m ingestion.database --table orders --date 2026-10-01 --full-load`. Add `--dry-run` to only count. |
+| Run past dates again | `uv run python -m orchestration.backfill --from-date 2026-09-25 --to-date 2026-10-01`. Runs the ingest step for each date. |
 | Source changed its columns | Ingest stops and names the column. Add `--on-schema-change absorb` to go on anyway (a missing column becomes NULL). |
 | Start or stop at a step | Add `--from-step silver` or `--to-step bronze` (steps: ingest, bronze, silver, gold, checks). |
 | See what ran | Each step is saved in the BigQuery table `stylehub_ops.pipeline_runs`: status, time, rows and error. |
@@ -287,12 +297,13 @@ See [docs/DEVOPS.md](docs/DEVOPS.md) for what each CI job does.
 | `BQ_SOURCE` | `secrets/.env` | Dataset with the course's original tables, such as `events`. Default `stylehub`. |
 | `BQ_BRONZE`, `BQ_SILVER`, `BQ_GOLD` | `secrets/.env` | Dataset names. Defaults `stylehub_bronze`, `stylehub_silver`, `stylehub_gold`. |
 | `PG_HOST`, `PG_PORT`, `PG_DATABASE`, `PG_USER`, `PG_PASSWORD` | `secrets/.env` | Read-only Postgres source. Never commit the password. |
+| `PG_SSLMODE` | `secrets/.env` (optional) | `require` when the server demands TLS (the course server does). Default `prefer`. |
 | `LOCAL_PG_PASSWORD` | Your shell (optional) | Password for the local Docker Postgres. Default `stylehub_local`. |
 | `BQ_OPS` | `secrets/.env` | Dataset for `pipeline_runs`. Default `stylehub_ops`. Create it before the first run. |
 | `ALERT_WEBHOOK_URL` | `secrets/.env` (optional) | Discord webhook for failure alerts. It is a secret. Leave it empty to turn alerts off. |
-| Watermark column | `WATERMARK` in `src/python/ingestion/incremental.py` | One column per table. Both tables use `updated_at` for now. |
-| Lookback days | `LOOKBACK_DAYS` in `src/python/ingestion/incremental.py` | Default 1. |
-| Raw folder names | `RAW_DIR` in `src/python/pipeline/config.py` | Needed when a folder name differs from the table name. `products` uses `products_api`. |
+| Watermark column | `WATERMARK` in `src/python/ingestion/database.py` | One column per table. Both tables use `updated_at` for now. |
+| Lookback days | `LOOKBACK_DAYS` in `src/python/ingestion/database.py` | Default 1. |
+| Raw folder names | `RAW_DIR` in `src/python/common/config.py` | Needed when a folder name differs from the table name. `products` uses `products_api`. |
 
 > [!WARNING]
 > Never commit `secrets/` (it holds `.env` and the key file), GCP keys or passwords. `.gitignore` blocks them, but check `git status` before each commit.
@@ -323,7 +334,7 @@ See [docs/DEVOPS.md](docs/DEVOPS.md) for what each CI job does.
 | Testing | Unit tests cover paths, date windows and SQL placeholders. Integration tests cover extraction from a sample Postgres. The SQL has never run on real BigQuery data. |
 | Schema | The columns that `src/sql/silver/` reads for `users` and `products` match the headers of the course CSV files. The CSV files for `orders` and `order_items` have other columns (for example `order_id`, and no `updated_at`), so Silver for these tables assumes the Postgres schema. `shipments` has no CSV file. `EXPECTED_SCHEMAS` was written from the sample data in `docker/`. Compare both with the real source before the first real run. |
 | Setup scripts | `setup_gcp` and `load_csv` are tested with mocks only. They have not run on a real GCP project. BigQuery detects column types from the CSV, so check them. |
-| Sources | Python ingestion covers `orders` and `order_items` only. `products` (API), `users` and `shipments` need Airbyte or a manual upload. |
+| Sources | Python ingestion covers `orders` and `order_items` (database) and `users` (API). `products` (a file) and `shipments` need Airbyte or a manual upload. The API code was written without a real API key, so it has not run against the real API. |
 | Watermark | `order_items` uses `updated_at` without a check on real data. See `docs/DECISIONS.md`. |
 | Deletes | The pipeline cannot see rows that the source deletes. |
 | Scheduling | Timers run each job once a day. There are no retries. A failed step stops the run until the next day or a manual run. |
@@ -342,7 +353,7 @@ See [docs/DEVOPS.md](docs/DEVOPS.md) for what each CI job does.
 
 - [ ] Run the SQL on real BigQuery data and fix column names
 - [ ] Measure the `events` queries and fill in `docs/DECISIONS.md`
-- [ ] Add Python ingestion for `products` (API), `users` and `shipments`
+- [ ] Run the API ingestion on the real StyleHub API, then add Python ingestion for `products` (file) and `shipments`
 - [ ] Run `setup_gcp` and `load_csv` on a real project and check the detected column types
 - [ ] Add `fact_events` and `dim_date`
 - [ ] Add daily sample data so the pipeline runs on new rows

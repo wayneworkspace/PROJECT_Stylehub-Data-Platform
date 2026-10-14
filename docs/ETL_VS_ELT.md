@@ -53,14 +53,14 @@ uv run pytest src/tests/test_business_rules.py
 3. See how many bytes Gold will scan, before you pay for it.
 
 ```powershell
-uv run python -m pipeline.run_sql gold --dry-run
+uv run python -m transform.run_sql gold --dry-run
 ```
 
 4. Rebuild Gold only, then run the checks.
 
 ```powershell
-uv run python -m pipeline.run_sql gold
-uv run python -m pipeline.checks
+uv run python -m transform.run_sql gold
+uv run python -m transform.checks
 ```
 
 Silver is not rebuilt and nothing is loaded again. That is the point of ELT with layers.

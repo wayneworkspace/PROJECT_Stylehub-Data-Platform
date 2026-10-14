@@ -3,14 +3,14 @@
 Re-running the same day adds duplicate rows to Bronze. That is intentional: Bronze keeps every
 ingest and Silver removes the duplicates.
 
-Usage: python -m pipeline.load_bronze --date 2026-10-01 [--table orders]
+Usage: python -m storage.load_bronze --date 2026-10-01 [--table orders]
 """
 
 import argparse
 
 from google.cloud import bigquery
 
-from pipeline.config import RAW_DIR, settings
+from common.config import RAW_DIR, settings
 
 TABLES = ("orders", "order_items", "products", "users", "shipments")
 

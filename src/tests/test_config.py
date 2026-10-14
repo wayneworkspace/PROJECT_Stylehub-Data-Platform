@@ -3,7 +3,7 @@ import os
 
 import pytest
 
-from pipeline import config
+from common import config
 
 OPTIONAL_NAMES = (
     "GCP_LOCATION",

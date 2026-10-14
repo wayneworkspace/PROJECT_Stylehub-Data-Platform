@@ -9,7 +9,7 @@ from functools import cache
 
 from google.cloud import bigquery
 
-from pipeline.config import SQL_DIR, Settings, render_sql, settings
+from common.config import SQL_DIR, Settings, render_sql, settings
 
 log = logging.getLogger(__name__)
 

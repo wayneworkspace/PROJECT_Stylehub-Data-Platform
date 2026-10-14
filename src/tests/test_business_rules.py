@@ -5,7 +5,7 @@ When Finance changes what counts as revenue, you edit Gold and its check. Silver
 
 import re
 
-from pipeline.config import SQL_DIR
+from common.config import SQL_DIR
 
 # status != 'Cancelled'   or   status NOT IN ('Cancelled', 'Returned')
 STATUS_FILTER = re.compile(r"status\s*(?:!=|<>)\s*'[^']+'|status\s+NOT\s+IN\s*\([^)]*\)", re.I)

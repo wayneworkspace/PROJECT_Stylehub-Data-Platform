@@ -11,15 +11,15 @@ distinct ids does not change (src/tests/test_backfill.py proves it).
 By default only the ingest step runs. Then run Silver and Gold once for the whole range.
 
 Usage:
-    python -m pipeline.backfill --from-date 2026-09-25 --to-date 2026-10-01
-    python -m pipeline.backfill --from-date 2026-09-25 --to-date 2026-10-01 --to-step bronze
+    python -m orchestration.backfill --from-date 2026-09-25 --to-date 2026-10-01
+    python -m orchestration.backfill --from-date 2026-09-25 --to-date 2026-10-01 --to-step bronze
 """
 
 import argparse
 import logging
 from datetime import date, timedelta
 
-from pipeline import run_daily
+from orchestration import run_daily
 
 log = logging.getLogger("pipeline")
 

@@ -2,8 +2,8 @@ from datetime import date
 
 import pytest
 
-from ingestion.incremental import window_for
-from pipeline.config import SQL_DIR, render_sql
+from common.config import SQL_DIR, render_sql
+from ingestion.database import window_for
 
 
 @pytest.fixture(autouse=True)

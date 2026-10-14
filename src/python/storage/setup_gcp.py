@@ -3,7 +3,7 @@
 Safe to run again: anything that already exists is left alone. New ones are created in
 GCP_LOCATION. The bucket and the datasets should share one location, or loads between them fail.
 
-Usage: python -m pipeline.setup_gcp [--dry-run]
+Usage: python -m storage.setup_gcp [--dry-run]
 """
 
 import argparse
@@ -11,7 +11,7 @@ import argparse
 from google.api_core.exceptions import NotFound
 from google.cloud import bigquery, storage
 
-from pipeline.config import Settings, settings
+from common.config import Settings, settings
 
 
 def dataset_ids(cfg: Settings) -> list[str]:

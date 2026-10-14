@@ -13,22 +13,20 @@ the duplicates. Before writing, the columns are compared with the expected schem
 The watermark column of order_items must be chosen from real data: check whether
 updated_at of order_items changes when an order changes status (see docs/DECISIONS.md, section 2).
 
-Usage: python -m ingestion.incremental --table orders --date 2026-10-01
+Usage: python -m ingestion.database --table orders --date 2026-10-01
            [--full-load] [--dry-run] [--on-schema-change absorb]
 """
 
 import argparse
-import os
 import time
-from contextlib import closing
 from datetime import date, datetime, timedelta
 
 import pandas as pd
-import psycopg2
 
+from common.config import load_env
 from ingestion.raw_writer import write_raw
 from ingestion.schema_check import ON_CHANGE_CHOICES, OnChange, enforce_schema
-from pipeline.config import load_env
+from sources.postgres import fetch_dataframe
 
 # table -> watermark column. Add new tables here, do not change the logic below.
 WATERMARK = {
@@ -46,25 +44,6 @@ def window_for(data_date: date, lookback_days: int = LOOKBACK_DAYS) -> tuple[dat
     return start, end
 
 
-def connect() -> psycopg2.extensions.connection:
-    return psycopg2.connect(
-        host=os.environ["PG_HOST"],
-        port=os.environ.get("PG_PORT", "5432"),
-        dbname=os.environ["PG_DATABASE"],
-        user=os.environ["PG_USER"],
-        password=os.environ["PG_PASSWORD"],
-    )
-
-
-def _fetch(query: str, params: tuple = ()) -> pd.DataFrame:
-    """Run one query and return the rows as a DataFrame."""
-    # closing() really closes the connection. psycopg2's own "with" only ends the transaction.
-    with closing(connect()) as conn, conn.cursor() as cur:
-        cur.execute(query, params)
-        columns = [col.name for col in cur.description]
-        return pd.DataFrame(cur.fetchall(), columns=columns)
-
-
 def _check_known(table: str) -> None:
     # Table and column names cannot be query parameters. They are safe in the queries below
     # because they come from the WATERMARK dict, never from user input.
@@ -78,13 +57,13 @@ def extract_day(table: str, data_date: date) -> pd.DataFrame:
     column = WATERMARK[table]
     start, end = window_for(data_date)
     query = f"SELECT * FROM {table} WHERE {column} >= %s AND {column} < %s"
-    return _fetch(query, (start, end))
+    return fetch_dataframe(query, (start, end))
 
 
 def extract_full(table: str) -> pd.DataFrame:
     """Full load: every row of the table."""
     _check_known(table)
-    return _fetch(f"SELECT * FROM {table}")
+    return fetch_dataframe(f"SELECT * FROM {table}")
 
 
 def ingest_table(

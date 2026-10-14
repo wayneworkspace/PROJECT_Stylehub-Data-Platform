@@ -1,6 +1,6 @@
 # Runs the pipeline in a clean, repeatable environment.
 # Build:  docker build -t stylehub-pipeline .
-# Run:    docker run --rm stylehub-pipeline python -m pipeline.run_daily --help
+# Run:    docker run --rm stylehub-pipeline python -m orchestration.run_daily --help
 FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 \
@@ -26,4 +26,4 @@ ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONPATH="/app/src/python"
 
 # Secrets are never baked into the image. Pass them as environment variables or mount a key file.
-CMD ["python", "-m", "pipeline.run_daily", "--help"]
+CMD ["python", "-m", "orchestration.run_daily", "--help"]

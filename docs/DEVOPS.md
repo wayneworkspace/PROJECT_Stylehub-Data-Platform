@@ -12,8 +12,8 @@ This page explains the DevOps parts of the repo and what to add next.
 | CI | `.github/workflows/ci.yaml` | Runs the same checks on each push to `main`, and also the tests and a Docker build. |
 | CD | `.github/workflows/cd.yaml`, `docs/CD.md` | After CI passes on `main`, builds the image and pushes it to Artifact Registry. The VM pulls it. No SSH into the VM. |
 | Locked packages | `uv.lock` | Keeps local, Docker and CI runs on the same package versions. |
-| Logs and run history | `src/python/pipeline/run_daily.py`, `src/python/pipeline/runs.py`, `src/sql/ops/` | Logs each step and saves one row per step in `stylehub_ops.pipeline_runs`. |
-| Failure alerts | `src/python/pipeline/alerts.py` | Sends a Discord message when a step fails. Off when `ALERT_WEBHOOK_URL` is empty. |
+| Logs and run history | `src/python/orchestration/run_daily.py`, `src/python/orchestration/runs.py`, `src/sql/ops/` | Logs each step and saves one row per step in `stylehub_ops.pipeline_runs`. |
+| Failure alerts | `src/python/orchestration/alerts.py` | Sends a Discord message when a step fails. Off when `ALERT_WEBHOOK_URL` is empty. |
 | VM jobs | `deploy/`, `docs/DEPLOY_VM.md` | A script and systemd timers. Two jobs, each with its own service account. |
 
 ## CI jobs

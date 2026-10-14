@@ -9,7 +9,7 @@ from datetime import date
 
 import pytest
 
-from ingestion.incremental import extract_day, extract_full, ingest_table
+from ingestion.database import extract_day, extract_full, ingest_table
 
 pytestmark = pytest.mark.integration
 
@@ -50,7 +50,7 @@ def test_dry_run_writes_nothing(monkeypatch):
     def fail(*args, **kwargs):
         raise AssertionError("write_raw must not run in a dry run")
 
-    monkeypatch.setattr("ingestion.incremental.write_raw", fail)
+    monkeypatch.setattr("ingestion.database.write_raw", fail)
     message = ingest_table("orders", "2026-10-01", dry_run=True)
     assert "24 rows" in message
     assert "dry run" in message

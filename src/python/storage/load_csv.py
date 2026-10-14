@@ -10,9 +10,9 @@ BigQuery detects the column types from the file. Check the schema before you rel
 Big files (events.csv is about 16 GB) take a long time to upload. Run them on purpose.
 
 Usage:
-    python -m pipeline.load_csv                       # every .csv in data/raw_data
-    python -m pipeline.load_csv --file data/raw_data/orders.csv --file data/raw_data/users.csv
-    python -m pipeline.load_csv --dir some/other/folder
+    python -m storage.load_csv                       # every .csv in data/raw_data
+    python -m storage.load_csv --file data/raw_data/orders.csv --file data/raw_data/users.csv
+    python -m storage.load_csv --dir some/other/folder
 """
 
 import argparse
@@ -20,7 +20,7 @@ from pathlib import Path
 
 from google.cloud import bigquery, storage
 
-from pipeline.config import ROOT, settings
+from common.config import ROOT, settings
 
 DEFAULT_CSV_DIR = ROOT / "data" / "raw_data"
 LANDING_PREFIX = "landing/stylehub"  # copies of the CSV files. This is not the Raw Zone.

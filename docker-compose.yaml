@@ -2,7 +2,7 @@
 # without touching the course database.
 #
 #   docker compose up -d postgres                      # start Postgres with sample data
-#   docker compose run --rm pipeline python -m ingestion.incremental --table orders --date 2026-10-01 --dry-run
+#   docker compose run --rm pipeline python -m ingestion.database --table orders --date 2026-10-01 --dry-run
 #   docker compose down -v                             # stop and delete the sample data
 #
 # The password below is for this throwaway local database only. Never reuse it anywhere else.

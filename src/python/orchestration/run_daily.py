@@ -5,7 +5,7 @@ with no change to the logic inside.
 
 Every step is logged, recorded in BigQuery (pipeline_runs) and sends an alert if it fails.
 
-Usage: python -m pipeline.run_daily --date 2026-10-01 [--from-step bronze] [--to-step ingest]
+Usage: python -m orchestration.run_daily --date 2026-10-01 [--from-step bronze] [--to-step ingest]
 """
 
 import argparse
@@ -15,12 +15,13 @@ import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime
 
-from ingestion.incremental import INCREMENTAL_TABLES, ingest_table
-from pipeline.alerts import send_alert
-from pipeline.checks import run_checks
-from pipeline.load_bronze import TABLES, load_day
-from pipeline.run_sql import run_layer
-from pipeline.runs import record_run, run_row
+from ingestion import api as api_ingestion
+from ingestion import database as database_ingestion
+from orchestration.alerts import send_alert
+from orchestration.runs import record_run, run_row
+from storage.load_bronze import TABLES, load_day
+from transform.checks import run_checks
+from transform.run_sql import run_layer
 
 log = logging.getLogger("pipeline")
 
@@ -28,8 +29,10 @@ MAX_ERROR_CHARS = 500  # Longer errors are cut, so one pipeline_runs row stays s
 
 
 def step_ingest(data_date: str) -> int | None:
-    for table in INCREMENTAL_TABLES:
-        log.info(ingest_table(table, data_date))
+    for table in database_ingestion.INCREMENTAL_TABLES:
+        log.info(database_ingestion.ingest_table(table, data_date))
+    for table in api_ingestion.API_TABLES:
+        log.info(api_ingestion.ingest_table(table, data_date))
     return None
 
 

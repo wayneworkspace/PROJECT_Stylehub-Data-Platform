@@ -4,8 +4,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from pipeline import alerts, config, run_daily, runs
-from pipeline.runs import run_row
+from common import config
+from orchestration import alerts, run_daily, runs
+from orchestration.runs import run_row
 
 
 def test_alert_is_skipped_without_url(monkeypatch):

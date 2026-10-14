@@ -4,8 +4,8 @@ from unittest.mock import MagicMock
 import pytest
 from google.api_core.exceptions import NotFound
 
-from pipeline import load_csv, setup_gcp
-from pipeline.config import Settings
+from common.config import Settings
+from storage import load_csv, setup_gcp
 
 
 def make_settings() -> Settings:

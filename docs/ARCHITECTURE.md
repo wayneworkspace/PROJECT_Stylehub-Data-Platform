@@ -5,7 +5,7 @@
 | Layer | Where | Contents | Written by |
 |---|---|---|---|
 | Raw Zone | GCS `raw/stylehub/<table>/date=<date>/batch_id=<id>/` | Files exactly as fetched, append-only, with `_ingested_at`, `_source`, `_batch_id` | `src/python/ingestion/` or Airbyte |
-| Bronze | BigQuery `stylehub_bronze` | Copy of the source, keeping every ingest | `src/python/pipeline/load_bronze.py` |
+| Bronze | BigQuery `stylehub_bronze` | Copy of the source, keeping every ingest | `src/python/storage/load_bronze.py` |
 | Silver | BigQuery `stylehub_silver` | Cleaned, organized into facts and dimensions | `src/sql/silver/` |
 | Gold | BigQuery `stylehub_gold` | Business tables that hold the rules | `src/sql/gold/` |
 
@@ -34,8 +34,9 @@ When a business rule changes, rerun from the nearest layer: edit Gold, leave Sil
 
 ## Ingestion (sessions 2 and 4)
 
-- **Python** (`src/python/ingestion/`): use when you need control over each step: choosing the watermark, the lookback, and the Raw path. It can load one day (incremental) or the whole table (`--full-load`). Before it writes, `src/python/ingestion/schema_check.py` compares the columns with the expected ones (see the table in that file).
-- **Backfill** (`src/python/pipeline/backfill.py`): runs the steps for a range of past dates. Running the range twice adds Raw files but does not change the distinct ids.
+- **Python API ingestion** (`src/python/ingestion/api.py`, client in `src/python/sources/stylehub_api.py`): reads the `users` endpoint one day at a time with `created_from` and `created_to`. It sends the key in a header, reads pages until `has_more` is false, and retries 5xx errors, timeouts and rate limits with a wait that doubles. It stops at once on 400 or 401.
+- **Python database ingestion** (`src/python/ingestion/database.py`): use when you need control over each step: choosing the watermark, the lookback, and the Raw path. It can load one day (incremental) or the whole table (`--full-load`). Before it writes, `src/python/ingestion/schema_check.py` compares the columns with the expected ones (see the table in that file).
+- **Backfill** (`src/python/orchestration/backfill.py`): runs the steps for a range of past dates. Running the range twice adds Raw files but does not change the distinct ids.
 - **Airbyte OSS** on a GCP VM (`e2-standard-4`, `asia-southeast1-b`): use for Postgres and the API (Connector Builder).
 
 Airbyte sync modes (from session 4):
