@@ -2,7 +2,7 @@ name: Pipeline freshness
 
 # The "did not run" alert. Airflow cannot warn you when Airflow itself is down, so GitHub checks
 # from outside: it reads pipeline_runs and sends a Discord message when the last good run is old.
-# Setup (once): docs/DEPLOY_VM.md, section "Did not run alert". The job is skipped until the
+# Setup (once): docs/ops/DEPLOY_VM.md, section "Did not run alert". The job is skipped until the
 # repository variable WIF_MONITOR_SERVICE_ACCOUNT is set.
 # GitHub turns off schedules after 60 days without repository activity. Re-enable it if that happens.
 on:

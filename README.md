@@ -117,11 +117,12 @@ Tags, materialization and dataset are set per folder in `dbt/dbt_project.yml`. E
 │   ├── pipeline/
 │   │   ├── Dockerfile       # Image for the pipeline (CD publishes it)
 │   │   └── run_on_vm.sh     # Run one pipeline step inside Docker on a VM
-│   ├── airflow/
-│   │   ├── dags/stylehub_daily.py  # Daily DAG: start -> ingest -> bronze -> silver -> gold -> end
-│   │   ├── Dockerfile       # Image for Airflow, with the pipeline packages inside
-│   │   └── README.md        # How to run Airflow
-│   └── postgres/init/       # Sample data for the local Postgres
+│   └── airflow/
+│       ├── dags/stylehub_daily.py  # Daily DAG: start -> ingest -> bronze -> silver -> gold -> end
+│       ├── Dockerfile       # Image for Airflow, with the pipeline packages inside
+│       └── README.md        # How to run Airflow
+├── dev/                     # Sample data for local tests (never deployed)
+│   └── postgres/init/       # Seed SQL for the local Postgres
 ├── dbt/                     # Silver and Gold as dbt models, with tests
 │   ├── models/              # dbt Labs layout, see the table below
 │   │   ├── staging/stylehub/       # stg_stylehub__*: 1:1 with Bronze, latest row, cast types
@@ -132,18 +133,20 @@ Tags, materialization and dataset are set per folder in `dbt/dbt_project.yml`. E
 ├── docs/
 │   ├── README.md            # Start here: which page to read for which goal
 │   ├── assets/              # Icons used in the README
-│   ├── ARCHITECTURE.md      # Layers, star schema, Airbyte sync modes
 │   ├── html/                # Pages to open in a browser
 │   │   ├── architecture.html       # Data flow diagram
 │   │   └── code-walkthrough.html   # Line-by-line guide to the main code
-│   ├── RUN_END_TO_END.md    # Step-by-step: run the whole pipeline
-│   ├── CD.md                # Publish the image and let the VM pull it
-│   ├── DECISIONS.md         # Design choices and measurements
-│   ├── DEPLOY_VM.md         # Run the pipeline on a GCP VM
-│   ├── DEVOPS.md            # CI, Docker, pre-commit and what comes next
-│   ├── EXTENDING.md         # How to add dbt, Airflow and Spark later
-│   ├── ETL_VS_ELT.md        # Why ELT, and what to change when a business rule changes
-│   └── ROADMAP.md           # Plan by course session
+│   ├── design/              # Why the pipeline is built this way
+│   │   ├── ARCHITECTURE.md  # Layers, star schema, Airbyte sync modes
+│   │   ├── DECISIONS.md     # Design choices and measurements
+│   │   ├── ETL_VS_ELT.md    # Why ELT, and what to change when a business rule changes
+│   │   ├── EXTENDING.md     # How to add dbt, Airflow and Spark later
+│   │   └── ROADMAP.md       # Plan by course session
+│   └── ops/                 # How to run and ship it
+│       ├── RUN_END_TO_END.md  # Step-by-step: run the whole pipeline
+│       ├── CD.md              # Publish the image and let the VM pull it
+│       ├── DEPLOY_VM.md       # Run the pipeline on a GCP VM
+│       └── DEVOPS.md          # CI, Docker, pre-commit and what comes next
 ├── src/
 │   ├── python/
 │   │   ├── common/
@@ -318,7 +321,7 @@ uv run python -m transform.run_sql bronze --dry-run
 | Integration tests | `uv run pytest -m integration` (needs the Docker Postgres) | You run them before you push |
 | CI on GitHub | Same checks, plus `dbt parse` and a Docker build | On every push to `main` |
 
-See [docs/DEVOPS.md](docs/DEVOPS.md) for what each CI job does.
+See [docs/ops/DEVOPS.md](docs/ops/DEVOPS.md) for what each CI job does.
 
 ## Configuration
 
@@ -389,7 +392,7 @@ See [docs/DEVOPS.md](docs/DEVOPS.md) for what each CI job does.
 | Events | `fact_events` rebuilds the newest 3 days (`events_lookback_days`), so late events inside that window are kept. Later ones are missed until a `--full-refresh`. The first run (or `--full-refresh`) scans about 13 GB. There is no `dim_date` yet. The event dates (2019) do not overlap the order dates (2024 and later). |
 | Bronze copies | Each new day adds one snapshot of every table. `events_raw` (a 15 GB copy) stays in Bronze until you delete it. |
 | CI | The `dbt parse` step in CI has not run on GitHub yet. |
-| Service accounts | The roles for one account per job are designed in `docs/DEPLOY_VM.md`. The keys are not created. One key does everything now. |
+| Service accounts | The roles for one account per job are designed in `docs/ops/DEPLOY_VM.md`. The keys are not created. One key does everything now. |
 | Backups | None. |
 | Dependencies | `uv.lock` pins exact versions. Update them on purpose with `uv lock --upgrade`. |
 | Scale | A learning project that uses a course dataset. Do not use it for real business reports. |
@@ -397,7 +400,7 @@ See [docs/DEVOPS.md](docs/DEVOPS.md) for what each CI job does.
 ## Roadmap
 
 - [x] Run the SQL and dbt models on real BigQuery data and fix column names
-- [ ] Measure the `events` queries and fill in `docs/DECISIONS.md`
+- [ ] Measure the `events` queries and fill in `docs/design/DECISIONS.md`
 - [ ] Run the API and Postgres ingestion on real sources (the CSV path is done)
 - [x] Run `setup_gcp` and `load_csv` on a real project
 - [x] Add `fact_events`
@@ -410,4 +413,4 @@ See [docs/DEVOPS.md](docs/DEVOPS.md) for what each CI job does.
 - [ ] Create one service account per job
 - [ ] Describe the bucket, datasets and service accounts in Terraform
 - [x] Add dbt and an Airflow DAG (run end to end on BigQuery from a laptop)
-- [ ] Add Spark (see [docs/EXTENDING.md](docs/EXTENDING.md))
+- [ ] Add Spark (see [docs/design/EXTENDING.md](docs/design/EXTENDING.md))

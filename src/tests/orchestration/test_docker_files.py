@@ -53,8 +53,9 @@ def test_deploy_folder_layout():
     assert (deploy / "pipeline" / "run_on_vm.sh").is_file()
     assert (deploy / "airflow" / "Dockerfile").is_file()
     assert (deploy / "airflow" / "dags" / "stylehub_daily.py").is_file()
-    assert (deploy / "postgres" / "init" / "01_seed.sql").is_file()
-    for old in ("docker", "deploy/docker", "deploy/vm", "airflow/dags", "airflow/Dockerfile"):
+    assert (ROOT / "dev" / "postgres" / "init" / "01_seed.sql").is_file()
+    for old in ("docker", "deploy/docker", "deploy/vm", "deploy/postgres", "airflow/dags",
+                "airflow/Dockerfile"):
         assert not (ROOT / old).exists(), old
     assert (ROOT / "docs" / "assets").is_dir()
     assert (ROOT / "docs" / "html" / "architecture.html").is_file()
@@ -81,3 +82,31 @@ def test_one_env_example_names_every_compose_variable():
     listed = set(re.findall(r"^(AIRFLOW_[A-Z_]+)=", example, flags=re.MULTILINE))
     assert names, "compose should read some AIRFLOW_ variables"
     assert names <= listed, f"missing in .env.example: {sorted(names - listed)}"
+
+
+def test_docs_are_grouped_by_purpose():
+    """docs/design says why, docs/ops says how to run it; no page sits loose in docs/."""
+    groups = {
+        "design": ("ARCHITECTURE", "DECISIONS", "ETL_VS_ELT", "EXTENDING", "ROADMAP"),
+        "ops": ("RUN_END_TO_END", "DEVOPS", "CD", "DEPLOY_VM"),
+    }
+    for folder, names in groups.items():
+        for name in names:
+            assert (ROOT / "docs" / folder / f"{name}.md").is_file(), name
+            assert not (ROOT / "docs" / f"{name}.md").exists(), name
+
+
+def test_relative_links_in_the_docs_point_to_real_files():
+    link = re.compile(r"\]\(([^)\s#]+)(?:#[^)]*)?\)")
+    docs = ROOT / "docs"
+    pages = [ROOT / "README.md", docs / "README.md", ROOT / "dbt" / "README.md",
+             ROOT / "deploy" / "airflow" / "README.md"]
+    pages += sorted((docs / "design").glob("*.md")) + sorted((docs / "ops").glob("*.md"))
+    broken = []
+    for page in pages:
+        for target in link.findall(page.read_text(encoding="utf-8")):
+            if target.startswith(("http://", "https://", "mailto:")):
+                continue
+            if not (page.parent / target).exists():
+                broken.append(f"{page.relative_to(ROOT)} -> {target}")
+    assert not broken, broken

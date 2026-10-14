@@ -1,4 +1,4 @@
-"""Business rules live in Gold. These tests keep it that way (docs/ETL_VS_ELT.md).
+"""Business rules live in Gold. These tests keep it that way (docs/design/ETL_VS_ELT.md).
 
 When Finance changes what counts as revenue, you edit Gold and its test. Silver stays as it is.
 The rules are in the dbt models and tests (dbt/).

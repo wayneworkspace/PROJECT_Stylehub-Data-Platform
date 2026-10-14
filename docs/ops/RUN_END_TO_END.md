@@ -107,7 +107,7 @@ Each step is also saved in `stylehub_ops.pipeline_runs`.
 
 ## Step 8. Run it with Airflow (optional)
 
-See [deploy/airflow/README.md](../deploy/airflow/README.md). In short:
+See [deploy/airflow/README.md](../../deploy/airflow/README.md). In short:
 
 ```powershell
 # add the AIRFLOW_ values to secrets\.env (names are at the end of .env.example)
@@ -160,7 +160,7 @@ docker compose --env-file secrets/.env --profile airflow down
 
 | Symptom | Look at |
 |---|---|
-| `KeyError` for a setting | `secrets\.env` and [README.md](../README.md#configuration) |
+| `KeyError` for a setting | `secrets\.env` and [README.md](../../README.md#configuration) |
 | `DefaultCredentialsError` in a `python -c` command | Set `$env:GOOGLE_APPLICATION_CREDENTIALS` in that window |
 | `Dataset ... was not found in location ...` | Region mismatch. Run `uv run python -m storage.events_bronze` |
 | `Cannot add fields` when loading Bronze | An old Bronze table has other columns. Delete it if it holds nothing you need |

@@ -66,7 +66,7 @@ jobs:
           GCP_PROJECT_ID: ci-dummy-project
           GCS_BUCKET: ci-dummy-bucket
       - name: Load the sample data into Postgres
-        run: psql -h localhost -U stylehub -d stylehub -v ON_ERROR_STOP=1 -f deploy/postgres/init/01_seed.sql
+        run: psql -h localhost -U stylehub -d stylehub -v ON_ERROR_STOP=1 -f dev/postgres/init/01_seed.sql
         env:
           PGPASSWORD: stylehub_local
       - name: Integration tests

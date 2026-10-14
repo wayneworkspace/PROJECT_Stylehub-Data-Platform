@@ -1,7 +1,7 @@
 # Run the pipeline on a GCP VM
 
 > [!NOTE]
-> The systemd timers described here were removed from the repo. Airflow now schedules the pipeline (see [deploy/airflow/README.md](../deploy/airflow/README.md)). Keep this page only as a starting point for a VM setup, and expect to adapt it. `deploy/pipeline/run_on_vm.sh` is still there.
+> The systemd timers described here were removed from the repo. Airflow now schedules the pipeline (see [deploy/airflow/README.md](../../deploy/airflow/README.md)). Keep this page only as a starting point for a VM setup, and expect to adapt it. `deploy/pipeline/run_on_vm.sh` is still there.
 
 This page shows how to run the pipeline every day on a small VM, with two service accounts that each do one job.
 

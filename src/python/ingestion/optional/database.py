@@ -11,7 +11,8 @@ the duplicates. Before writing, the columns are compared with the expected schem
 (src/python/ingestion/schema_check.py), so a source that changes its columns is noticed early.
 
 The watermark column of order_items must be chosen from real data: check whether
-updated_at of order_items changes when an order changes status (see docs/DECISIONS.md, section 2).
+updated_at of order_items changes when an order changes status
+(see docs/design/DECISIONS.md, section 2).
 
 Usage: python -m ingestion.optional.database --table orders --date 2026-10-01
            [--full-load] [--dry-run] [--on-schema-change absorb]

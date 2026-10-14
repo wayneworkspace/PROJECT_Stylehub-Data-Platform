@@ -19,7 +19,7 @@ Use `airflow dags backfill` and the DAG schedule for past dates. The whole DAG h
 
 1. Add `spark/`. Read Parquet from the Raw Zone (same `raw/stylehub/events/...` path) and write the result as a table in Silver or Gold.
 2. Run on Dataproc. Keep the output table names unchanged so downstream layers are unaffected.
-3. Move to Spark only when SQL on BigQuery stops being a good fit (complex processing, large scan cost). Record before and after measurements in `docs/DECISIONS.md`.
+3. Move to Spark only when SQL on BigQuery stops being a good fit (complex processing, large scan cost). Record before and after measurements in `docs/design/DECISIONS.md`.
 
 ## Replacing Python ingestion with Airbyte
 

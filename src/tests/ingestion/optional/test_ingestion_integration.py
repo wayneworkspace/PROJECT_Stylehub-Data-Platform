@@ -1,4 +1,4 @@
-"""Run the extraction against a real Postgres that holds deploy/postgres/init/01_seed.sql.
+"""Run the extraction against a real Postgres that holds dev/postgres/init/01_seed.sql.
 
 Start it with `docker compose up -d postgres`, then run:
     pytest -m integration

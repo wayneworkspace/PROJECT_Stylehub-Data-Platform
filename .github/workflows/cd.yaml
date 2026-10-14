@@ -1,7 +1,7 @@
 name: CD
 
 # Publish the Docker image after CI passed on main. The VM pulls the new image by itself
-# (see docs/CD.md). GitHub never connects to the VM, so no SSH key and no open firewall port.
+# (see docs/ops/CD.md). GitHub never connects to the VM, so no SSH key and no open firewall port.
 on:
   workflow_run:
     workflows: [CI]

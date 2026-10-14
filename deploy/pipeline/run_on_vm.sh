@@ -4,7 +4,7 @@
 # The data date is yesterday (UTC). Override it with DATA_DATE=2026-10-01.
 #
 # Which image runs:
-#   - STYLEHUB_IMAGE is set (CD, see docs/CD.md): log in to its registry with the job's own
+#   - STYLEHUB_IMAGE is set (CD, see docs/ops/CD.md): log in to its registry with the job's own
 #     key, pull the image, run it. Pin a version with a tag, for example ...:<git-sha>.
 #   - STYLEHUB_IMAGE is empty: run the local image "stylehub-pipeline" built by hand.
 set -euo pipefail
