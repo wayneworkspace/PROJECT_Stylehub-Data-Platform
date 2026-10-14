@@ -138,4 +138,3 @@ The job is skipped until `WIF_MONITOR_SERVICE_ACCOUNT` is set. Test it by hand f
 
 > [!WARNING]
 > I could not run this workflow. GitHub also turns off scheduled workflows after 60 days without activity in the repository.
-
