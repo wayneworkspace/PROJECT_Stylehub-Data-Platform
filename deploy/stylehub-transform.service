@@ -5,5 +5,7 @@ After=network-online.target docker.service
 
 [Service]
 Type=oneshot
+# STYLEHUB_IMAGE (optional) comes from this file. The leading '-' means: no file is fine.
+EnvironmentFile=-/etc/stylehub/pipeline.env
 ExecStart=/opt/stylehub/deploy/run_pipeline.sh bronze checks /etc/stylehub/transform-sa.json
 # Logs go to journald. Read them with: journalctl -u stylehub-transform

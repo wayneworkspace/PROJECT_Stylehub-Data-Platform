@@ -87,13 +87,16 @@ flowchart LR
 ```
 .
 ├── .github/
-│   └── workflows/ci.yaml    # Checks that run on every push to main
+│   └── workflows/
+│       ├── ci.yaml          # Checks that run on every push to main
+│       └── cd.yaml          # Pushes the image to Artifact Registry after CI
 ├── assets/                  # Icons used in this README
 ├── deploy/                  # Script and systemd timers to run on a VM
 ├── docker/
 │   └── postgres/init/       # Sample data for the local Postgres
 ├── docs/
 │   ├── ARCHITECTURE.md      # Layers, star schema, Airbyte sync modes
+│   ├── CD.md                # Publish the image and let the VM pull it
 │   ├── DECISIONS.md         # Design choices and measurements
 │   ├── DEPLOY_VM.md         # Run the pipeline on a GCP VM
 │   ├── DEVOPS.md            # CI, Docker, pre-commit and what comes next
@@ -301,7 +304,7 @@ See [docs/DEVOPS.md](docs/DEVOPS.md) for what each CI job does.
 | Run history | Only `run_daily` writes to `pipeline_runs`. Recording is best effort: if BigQuery is down, the row is lost. Only the Bronze step counts rows. |
 | Alerts | One Discord message per failed step. Nothing alerts you if the VM or the timer does not run at all. |
 | VM | The VM files in `deploy/` have not run on a real GCP project. |
-| Docker | CI builds the image, but it is not pushed to a registry or run on a server yet. |
+| Docker | CD pushes the image to Artifact Registry, but it has not run on a real GCP project or VM yet. |
 | Rebuilds | Silver and Gold use `CREATE OR REPLACE TABLE`. Each run rebuilds the whole table. |
 | Events | `events` is only partitioned. There is no `fact_events` or `dim_date` yet. |
 | Backups | None. |

@@ -56,6 +56,8 @@ sudo git clone https://github.com/wayneworkspace/PROJECT_Stylehub-Data-Platform 
 cd /opt/stylehub && sudo docker build -t stylehub-pipeline .
 ```
 
+To get the image from CD instead of building it here, follow [CD.md](CD.md) and skip the `docker build` line.
+
 ## 3. Add settings and keys
 
 Create `/etc/stylehub/pipeline.env` with the values from `.env.example`. Do not put quotes around values (Docker keeps them). Leave out `GOOGLE_APPLICATION_CREDENTIALS`: the script sets it.
