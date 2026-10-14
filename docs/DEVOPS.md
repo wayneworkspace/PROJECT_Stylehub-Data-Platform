@@ -6,15 +6,15 @@ This page explains the DevOps parts of the repo and what to add next.
 
 | Part | Files | What it does |
 |---|---|---|
-| Docker image | `Dockerfile`, `.dockerignore` | Runs the pipeline in a clean environment. It installs packages from `uv.lock` and does not run as root. Secrets are never copied in. |
-| Local Postgres | `docker-compose.yaml`, `docker/postgres/init/01_seed.sql` | Starts Postgres 16 with a small, fixed set of sample orders. The port is open to your own computer only. |
+| Docker image | `deploy/pipeline/Dockerfile`, `.dockerignore` | Runs the pipeline in a clean environment. It installs packages from `uv.lock` and does not run as root. Secrets are never copied in. |
+| One compose file (profiles `dev`, `pipeline`, `airflow`) and a local Postgres | `docker-compose.yaml`, `deploy/postgres/init/01_seed.sql` | Starts Postgres 16 with a small, fixed set of sample orders. The port is open to your own computer only. |
 | Pre-commit | `.pre-commit-config.yaml` | Runs ruff, gitleaks and file checks before each commit. |
 | CI | `.github/workflows/ci.yaml` | Runs the same checks on each push to `main`, and also the tests and a Docker build. |
 | CD | `.github/workflows/cd.yaml`, `docs/CD.md` | After CI passes on `main`, builds the image and pushes it to Artifact Registry. The VM pulls it. No SSH into the VM. |
 | Locked packages | `uv.lock` | Keeps local, Docker and CI runs on the same package versions. |
 | Logs and run history | `src/python/orchestration/run_daily.py`, `src/python/orchestration/runs.py`, `src/sql/ops/` | Logs each step and saves one row per step in `stylehub_ops.pipeline_runs`. |
 | Failure alerts | `src/python/orchestration/alerts.py` | Sends a Discord message when a step fails. Off when `ALERT_WEBHOOK_URL` is empty. |
-| VM jobs | `deploy/`, `docs/DEPLOY_VM.md` | A script and systemd timers. Two jobs, each with its own service account. |
+| VM jobs | `deploy/`, `docs/DEPLOY_VM.md` | A run script. The systemd timers were removed; Airflow schedules the pipeline. |
 
 ## CI jobs
 
@@ -28,7 +28,7 @@ CI does not call Google Cloud. It has no keys, so the BigQuery and GCS steps are
 
 ## Sample data
 
-`docker/postgres/init/01_seed.sql` is fixed on purpose, so tests can count on it. For the date 2026-10-01, the lookback window returns 24 orders and 46 order items. Order 100 tests a late update. Order 101 is too old and must stay out.
+`deploy/postgres/init/01_seed.sql` is fixed on purpose, so tests can count on it. For the date 2026-10-01, the lookback window returns 24 orders and 46 order items. Order 100 tests a late update. Order 101 is too old and must stay out.
 
 If you change this file, update `src/tests/test_ingestion_integration.py` too.
 

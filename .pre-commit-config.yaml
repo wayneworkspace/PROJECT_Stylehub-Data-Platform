@@ -9,12 +9,12 @@ repos:
       - id: check-yaml
       - id: check-merge-conflict
       - id: check-added-large-files
-        args: ["--maxkb=1024"]  # docs/architecture.html is about 750 KB
+        args: ["--maxkb=1024"]  # docs/html/architecture.html is about 750 KB
       - id: detect-private-key
       - id: end-of-file-fixer
-        exclude: ^(uv\.lock|assets/)
+        exclude: ^(uv\.lock|docs/assets/)
       - id: trailing-whitespace
-        exclude: ^(uv\.lock|assets/)
+        exclude: ^(uv\.lock|docs/assets/)
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.17.0

@@ -1,11 +1,12 @@
 """Run the whole pipeline for one date, step by step. Each step is its own function.
 
-When moving to Airflow later, each entry in STEPS becomes a task,
-with no change to the logic inside.
+Airflow runs the same steps, one task per step (see deploy/airflow/dags/stylehub_daily.py).
+Silver and Gold are built by dbt, which also runs the tests, so there is no separate checks step.
 
 Every step is logged, recorded in BigQuery (pipeline_runs) and sends an alert if it fails.
 
-Usage: python -m orchestration.run_daily --date 2026-10-01 [--from-step bronze] [--to-step ingest]
+Usage:
+    python -m orchestration.run_daily --date 2026-10-01 [--from-step bronze] [--to-step gold]
 """
 
 import argparse
@@ -15,13 +16,12 @@ import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime
 
-from ingestion import api as api_ingestion
-from ingestion import database as database_ingestion
+from ingestion import csv_tables
 from orchestration.alerts import send_alert
 from orchestration.runs import record_run, run_row
+from storage.events_bronze import ensure_events_bronze
 from storage.load_bronze import TABLES, load_day
-from transform.checks import run_checks
-from transform.run_sql import run_layer
+from transform.run_dbt import run_dbt
 
 log = logging.getLogger("pipeline")
 
@@ -29,14 +29,16 @@ MAX_ERROR_CHARS = 500  # Longer errors are cut, so one pipeline_runs row stays s
 
 
 def step_ingest(data_date: str) -> int | None:
-    for table in database_ingestion.INCREMENTAL_TABLES:
-        log.info(database_ingestion.ingest_table(table, data_date))
-    for table in api_ingestion.API_TABLES:
-        log.info(api_ingestion.ingest_table(table, data_date))
+    # The course data comes from CSV files: full load, no watermark.
+    # ingestion/optional/ (Postgres and API) stays for a live source. This flow does not call it.
+    for table in csv_tables.CSV_TABLES:
+        log.info(csv_tables.ingest_table(table, data_date))
     return None
 
 
 def step_bronze(data_date: str) -> int | None:
+    # events is built once (copy + partitioned table); later runs skip it.
+    ensure_events_bronze()
     total = 0
     for table in TABLES:
         rows = load_day(table, data_date)
@@ -46,18 +48,12 @@ def step_bronze(data_date: str) -> int | None:
 
 
 def step_silver(data_date: str) -> int | None:
-    run_layer("silver")
+    run_dbt("silver")
     return None
 
 
 def step_gold(data_date: str) -> int | None:
-    run_layer("gold")
-    return None
-
-
-def step_checks(data_date: str) -> int | None:
-    if not run_checks():
-        raise SystemExit("Data checks failed")
+    run_dbt("gold")
     return None
 
 
@@ -67,7 +63,6 @@ STEPS = [
     ("bronze", step_bronze),
     ("silver", step_silver),
     ("gold", step_gold),
-    ("checks", step_checks),
 ]
 
 
@@ -116,18 +111,22 @@ def setup_logging() -> None:
 
 
 def main() -> None:
-    names = [name for name, _ in STEPS]
     parser = argparse.ArgumentParser()
     parser.add_argument("--date", required=True, help="YYYY-MM-DD")
-    parser.add_argument("--from-step", choices=names, default=names[0])
-    parser.add_argument("--to-step", choices=names, default=names[-1])
+    parser.add_argument("--from-step")
+    parser.add_argument("--to-step")
     args = parser.parse_args()
-    first, last = names.index(args.from_step), names.index(args.to_step)
-    if first > last:
+
+    names = [name for name, _ in STEPS]
+    from_step, to_step = args.from_step or names[0], args.to_step or names[-1]
+    for step in (from_step, to_step):
+        if step not in names:
+            parser.error(f"step '{step}' does not exist: {names}")
+    if names.index(from_step) > names.index(to_step):
         parser.error("--from-step must come before --to-step")
 
     setup_logging()
-    run_steps(args.date, args.from_step, args.to_step)
+    run_steps(args.date, from_step, to_step)
 
 
 if __name__ == "__main__":

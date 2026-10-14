@@ -9,12 +9,14 @@ from dotenv import load_dotenv
 
 ROOT = Path(__file__).resolve().parents[3]
 SQL_DIR = ROOT / "src" / "sql"
+DBT_DIR = ROOT / "dbt"
 # All settings and secrets live in one file that Git ignores. Copy .env.example to this path.
 ENV_FILE = ROOT / "secrets" / ".env"
+# pipeline_runs rows that could not be saved to BigQuery wait here (Git ignores logs/).
+PENDING_RUNS_FILE = ROOT / "logs" / "pipeline_runs_pending.jsonl"
 
-# Raw folder name per table when it differs from the table name
-# (session 2: products come from the API).
-RAW_DIR = {"products": "products_api"}
+# Raw folder name per table when it differs from the table name (none for now).
+RAW_DIR: dict[str, str] = {}
 
 
 def load_env() -> None:

@@ -5,6 +5,7 @@ description = "Data platform on GCP for the StyleHub dataset, built following a 
 requires-python = ">=3.11"
 dependencies = [
     "google-cloud-bigquery>=3.25",
+    "google-cloud-bigquery-storage>=2.25",
     "google-cloud-storage>=2.18",
     "pandas>=2.2",
     "pyarrow>=16",
@@ -14,7 +15,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.6"]
+dev = ["pytest>=8", "pyyaml>=6", "ruff>=0.6"]
+# Silver and Gold with dbt. Airflow is NOT here: install it on its own (see deploy/airflow/README.md).
+dbt = ["dbt-bigquery>=1.10"]
 
 [build-system]
 requires = ["hatchling"]

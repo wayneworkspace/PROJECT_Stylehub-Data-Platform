@@ -1,9 +1,9 @@
 """Run the SQL files of one layer in filename order (01_, 02_, ...).
 
 Usage:
-    python -m transform.run_sql silver
-    python -m transform.run_sql gold --dry-run     # only print bytes processed (session 1)
-    python -m transform.run_sql silver --file 04_fact_order_items.sql
+    python -m transform.run_sql bronze
+    python -m transform.run_sql bronze --dry-run     # only print bytes processed (session 1)
+    python -m transform.run_sql bronze --file 01_events_partitioned.sql
 """
 
 import argparse
@@ -11,8 +11,9 @@ import argparse
 from google.cloud import bigquery
 
 from common.config import SQL_DIR, render_sql, settings
+from common.retry import call_with_retry
 
-LAYERS = ("bronze", "silver", "gold")
+LAYERS = ("bronze",)  # Silver and Gold are built by dbt (see transform/run_dbt.py)
 
 
 def run_layer(layer: str, dry_run: bool = False, only_file: str | None = None) -> None:
@@ -25,11 +26,12 @@ def run_layer(layer: str, dry_run: bool = False, only_file: str | None = None) -
 
     for path in paths:
         config = bigquery.QueryJobConfig(dry_run=dry_run, use_query_cache=False)
-        job = client.query(render_sql(path), job_config=config)
+        sql = render_sql(path)
         if dry_run:
+            job = client.query(sql, job_config=config)
             print(f"{layer}/{path.name}: {job.total_bytes_processed:,} bytes")
         else:
-            job.result()
+            call_with_retry(lambda: client.query(sql, job_config=config).result())
             print(f"{layer}/{path.name}: done")
 
 

@@ -1,0 +1,38 @@
+# dbt builds the Silver and Gold layers. Bronze is loaded by Python, so dbt only reads it.
+name: stylehub
+version: "1.0.0"
+config-version: 2
+profile: stylehub
+
+model-paths: ["models"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+
+clean-targets: ["target", "dbt_packages"]
+
+vars:
+  # How many days back fact_events is rebuilt each run (late events inside this window are kept).
+  events_lookback_days: 3
+
+models:
+  stylehub:
+    # Folders follow dbt Labs (staging -> intermediate -> marts). The datasets and the tags keep the
+    # medallion names: the silver step builds staging, intermediate and marts/core, the gold step
+    # builds marts/reporting.
+    staging:
+      +materialized: view
+      +schema: "{{ env_var('BQ_SILVER', 'stylehub_silver') }}"
+      +tags: ["silver"]
+    intermediate:
+      +materialized: view
+      +schema: "{{ env_var('BQ_SILVER', 'stylehub_silver') }}"
+      +tags: ["silver"]
+    marts:
+      core:
+        +materialized: table
+        +schema: "{{ env_var('BQ_SILVER', 'stylehub_silver') }}"
+        +tags: ["silver"]
+      reporting:
+        +materialized: table
+        +schema: "{{ env_var('BQ_GOLD', 'stylehub_gold') }}"
+        +tags: ["gold"]

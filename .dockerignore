@@ -9,6 +9,7 @@ __pycache__
 
 # Never send secrets or data into the build context
 .env
+**/.env
 secrets
 assets
 logs
@@ -20,4 +21,9 @@ data
 docs
 to_delete
 src/tests
-docker
+deploy
+
+# Not needed inside an image: dbt writes these when it runs
+dbt/target
+dbt/logs
+dbt/.user.yml

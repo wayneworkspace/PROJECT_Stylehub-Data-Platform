@@ -1,5 +1,8 @@
 # CD: publish the image, and the VM pulls it
 
+> [!NOTE]
+> The systemd timers described here were removed from the repo. Airflow now schedules the pipeline (see [deploy/airflow/README.md](../deploy/airflow/README.md)). Keep this page only as a starting point for a VM setup, and expect to adapt it. `deploy/pipeline/run_on_vm.sh` is still there.
+
 CI checks the code. CD ships it. After CI passes on `main`, GitHub builds the Docker image and pushes it to Google Artifact Registry. The VM pulls the new image the next time a timer runs.
 
 GitHub never connects to the VM. So there is no SSH key in GitHub and no open port on the VM.
@@ -22,7 +25,7 @@ flowchart LR
 |---|---|---|
 | CD workflow | `.github/workflows/cd.yaml` | Runs only when CI succeeded on `main`. Builds the image. Pushes two tags: the commit id and `latest`. |
 | Login without a key file | Workload Identity Federation | GitHub proves who it is with a short-lived token. No JSON key is stored in GitHub. |
-| VM script | `deploy/run_pipeline.sh` | If `STYLEHUB_IMAGE` is set, it logs in with the job's own key, pulls the image and runs it. |
+| VM script | `deploy/pipeline/run_on_vm.sh` | If `STYLEHUB_IMAGE` is set, it logs in with the job's own key, pulls the image and runs it. |
 
 ## One-time setup
 
@@ -80,7 +83,7 @@ STYLEHUB_IMAGE=REGION-docker.pkg.dev/PROJECT/stylehub/stylehub-pipeline:latest
 |---|---|
 | CD ran | GitHub > Actions > the "CD" run is green after "CI". |
 | The image is there | `gcloud artifacts docker images list REGION-docker.pkg.dev/PROJECT/stylehub --include-tags` |
-| The VM can pull | `sudo DATA_DATE=2026-10-01 /opt/stylehub/deploy/run_pipeline.sh ingest ingest /etc/stylehub/ingest-sa.json` prints the pull, then the run. |
+| The VM can pull | `sudo DATA_DATE=2026-10-01 /opt/stylehub/deploy/pipeline/run_on_vm.sh ingest ingest /etc/stylehub/ingest-sa.json` prints the pull, then the run. |
 
 ## Roll back
 
