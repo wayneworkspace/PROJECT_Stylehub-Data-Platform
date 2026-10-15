@@ -1001,7 +1001,7 @@ DROP_COLUMNS = {<span class="st">&quot;users&quot;</span>: [<span class="st">&qu
 20</pre></div>
           <div class="code-content"><pre><code><span class="st">&quot;&quot;&quot;Load the Raw files of one day into Bronze. Safe to re-run.</span>
 
-<span class="st">Each ingest writes a new batch under the day&#x27;s Raw folder. Bronze keeps only the LATEST batch of</span>
+<span class="st">Each ingest writes a new batch under the day's Raw folder. Bronze keeps only the LATEST batch of</span>
 <span class="st">each day, so running a day twice does not double the rows. Different days stay side by side, so</span>
 <span class="st">Bronze still holds one snapshot per day and Silver picks the newest row of each id.</span>
 
@@ -1086,52 +1086,56 @@ DROP_COLUMNS = {<span class="st">&quot;users&quot;</span>: [<span class="st">&qu
     </div>
   </div>
 </section>
-<section class="segment" id="seg-c-4-function" data-type="function" data-lines="35-39">
+<section class="segment" id="seg-c-4-function" data-type="function" data-lines="35-43">
   <div class="segment-header">
     <button class="expand-toggle">&#9660;</button>
     <h2>list_batch_ids: ask GCS</h2>
-    <span class="badge badge-function">function (L35-39)</span>
+    <span class="badge badge-function">function (L35-43)</span>
   </div>
   <div class="segment-body">
     <div class="segment-content">
       <div class="code-block">
-        <div class="code-header"><span>Python (L35-39)</span><button class="copy-button">Copy</button></div>
+        <div class="code-header"><span>Python (L35-43)</span><button class="copy-button">Copy</button></div>
         <div class="code-lines">
           <div class="line-numbers"><pre>35
 36
 37
 38
-39</pre></div>
+39
+40
+41
+42
+43</pre></div>
           <div class="code-content"><pre><code><span class="kw">def</span> <span class="fn">list_batch_ids</span>(prefix: <span class="bl">str</span>) -&gt; <span class="bl">list</span>[<span class="bl">str</span>]:
     <span class="st">&quot;&quot;&quot;The batch ids of one table and one day, read from the Raw Zone on GCS.&quot;&quot;&quot;</span>
     cfg = settings()
-    blobs = storage.Client(project=cfg.project).list_blobs(cfg.bucket, prefix=prefix)
-    <span class="kw">return</span> batch_ids_from_names([blob.name <span class="kw">for</span> blob <span class="kw">in</span> blobs])</code></pre></div>
+    client = storage.Client(project=cfg.project)
+    <span class="cm"># The listing is lazy, so read it inside the retried function.</span>
+    names = call_with_retry(
+        <span class="kw">lambda</span>: [blob.name <span class="kw">for</span> blob <span class="kw">in</span> client.list_blobs(cfg.bucket, prefix=prefix)]
+    )
+    <span class="kw">return</span> batch_ids_from_names(names)</code></pre></div>
         </div>
       </div>
       <div class="explanation">
         <h3>list_batch_ids: ask GCS</h3>
-        <p>The function lists all files under one prefix, which means one table and one day, in the Raw bucket. It passes the file names to <code>batch_ids_from_names</code> and returns the sorted batch ids. An empty list means that no ingest has run for that table and date. The caller treats this as nothing to load. Listing is cheap, because it reads names and not file contents.</p>
+        <p>The function lists all files under one prefix, which means one table and one day, in the Raw bucket. It passes the file names to <code>batch_ids_from_names</code> and returns the sorted batch ids. The listing from the Storage client is lazy: nothing is fetched until you loop over it. So the loop sits inside the function given to <code>call_with_retry</code>. A short network error during the listing is then retried, not raised. An empty list means that no ingest has run for that table and date. The caller treats this as nothing to load. Listing is cheap, because it reads names and not file contents.</p>
       </div>
     </div>
   </div>
 </section>
-<section class="segment" id="seg-c-5-function" data-type="function" data-lines="42-64">
+<section class="segment" id="seg-c-5-function" data-type="function" data-lines="46-68">
   <div class="segment-header">
     <button class="expand-toggle">&#9660;</button>
     <h2>BigQuery helpers: exists, count, delete</h2>
-    <span class="badge badge-function">function (L42-64)</span>
+    <span class="badge badge-function">function (L46-68)</span>
   </div>
   <div class="segment-body">
     <div class="segment-content">
       <div class="code-block">
-        <div class="code-header"><span>Python (L42-64)</span><button class="copy-button">Copy</button></div>
+        <div class="code-header"><span>Python (L46-68)</span><button class="copy-button">Copy</button></div>
         <div class="code-lines">
-          <div class="line-numbers"><pre>42
-43
-44
-45
-46
+          <div class="line-numbers"><pre>46
 47
 48
 49
@@ -1149,10 +1153,14 @@ DROP_COLUMNS = {<span class="st">&quot;users&quot;</span>: [<span class="st">&qu
 61
 62
 63
-64</pre></div>
+64
+65
+66
+67
+68</pre></div>
           <div class="code-content"><pre><code><span class="kw">def</span> <span class="fn">table_exists</span>(client: bigquery.Client, table_id: <span class="bl">str</span>) -&gt; <span class="bl">bool</span>:
     <span class="kw">try</span>:
-        client.get_table(table_id)
+        call_with_retry(<span class="kw">lambda</span>: client.get_table(table_id))
     <span class="kw">except</span> NotFound:
         <span class="kw">return</span> <span class="kw">False</span>
     <span class="kw">return</span> <span class="kw">True</span>
@@ -1177,27 +1185,23 @@ DROP_COLUMNS = {<span class="st">&quot;users&quot;</span>: [<span class="st">&qu
       </div>
       <div class="explanation">
         <h3>BigQuery helpers: exists, count, delete</h3>
-        <p><code>table_exists</code> asks BigQuery for the table and returns <code>False</code> when it is missing. On the very first run the Bronze table does not exist yet. <code>count_batch_rows</code> counts the rows with one <code>_batch_id</code>. It uses a query parameter, not text pasted into the SQL, so the value cannot break the query. <code>delete_batches</code> removes the rows of older batches with a <span class="term" data-term="dml-delete">DELETE</span> statement and <code>IN UNNEST(@batch_ids)</code>. Rows loaded by a load job can be deleted at once, so this works without the delay that streaming inserts have. Both queries also run inside <code>call_with_retry</code>. These three helpers are small on purpose. <code>load_day</code> reads like a short story because they hide the BigQuery details.</p>
+        <p><code>table_exists</code> asks BigQuery for the table, through <code>call_with_retry</code>, and returns <code>False</code> when it is missing. <code>NotFound</code> is not a short error, so it is not retried: it reaches the <code>except</code> at once. On the very first run the Bronze table does not exist yet. <code>count_batch_rows</code> counts the rows with one <code>_batch_id</code>. It uses a query parameter, not text pasted into the SQL, so the value cannot break the query. <code>delete_batches</code> removes the rows of older batches with a <span class="term" data-term="dml-delete">DELETE</span> statement and <code>IN UNNEST(@batch_ids)</code>. Rows loaded by a load job can be deleted at once, so this works without the delay that streaming inserts have. Both queries also run inside <code>call_with_retry</code>. These three helpers are small on purpose. <code>load_day</code> reads like a short story because they hide the BigQuery details.</p>
       </div>
     </div>
   </div>
 </section>
-<section class="segment" id="seg-c-6-function" data-type="function" data-lines="67-102">
+<section class="segment" id="seg-c-6-function" data-type="function" data-lines="71-106">
   <div class="segment-header">
     <button class="expand-toggle">&#9660;</button>
     <h2>load_day: load the new batch first, delete the old one after</h2>
-    <span class="badge badge-function">function (L67-102)</span>
+    <span class="badge badge-function">function (L71-106)</span>
   </div>
   <div class="segment-body">
     <div class="segment-content">
       <div class="code-block">
-        <div class="code-header"><span>Python (L67-102)</span><button class="copy-button">Copy</button></div>
+        <div class="code-header"><span>Python (L71-106)</span><button class="copy-button">Copy</button></div>
         <div class="code-lines">
-          <div class="line-numbers"><pre>67
-68
-69
-70
-71
+          <div class="line-numbers"><pre>71
 72
 73
 74
@@ -1228,7 +1232,11 @@ DROP_COLUMNS = {<span class="st">&quot;users&quot;</span>: [<span class="st">&qu
 99
 100
 101
-102</pre></div>
+102
+103
+104
+105
+106</pre></div>
           <div class="code-content"><pre><code><span class="kw">def</span> <span class="fn">load_day</span>(table: <span class="bl">str</span>, data_date: <span class="bl">str</span>) -&gt; <span class="bl">int</span>:
     <span class="st">&quot;&quot;&quot;Make Bronze hold the latest Raw batch of one table and one day. Return the rows loaded.</span>
 
@@ -1274,32 +1282,32 @@ DROP_COLUMNS = {<span class="st">&quot;users&quot;</span>: [<span class="st">&qu
     </div>
   </div>
 </section>
-<section class="segment" id="seg-c-7-main" data-type="main" data-lines="105-116">
+<section class="segment" id="seg-c-7-main" data-type="main" data-lines="109-120">
   <div class="segment-header">
     <button class="expand-toggle">&#9660;</button>
     <h2>Command line entry point</h2>
-    <span class="badge badge-main">main (L105-116)</span>
+    <span class="badge badge-main">main (L109-120)</span>
   </div>
   <div class="segment-body">
     <div class="segment-content">
       <div class="code-block">
-        <div class="code-header"><span>Python (L105-116)</span><button class="copy-button">Copy</button></div>
+        <div class="code-header"><span>Python (L109-120)</span><button class="copy-button">Copy</button></div>
         <div class="code-lines">
-          <div class="line-numbers"><pre>105
-106
-107
-108
-109
+          <div class="line-numbers"><pre>109
 110
 111
 112
 113
 114
 115
-116</pre></div>
+116
+117
+118
+119
+120</pre></div>
           <div class="code-content"><pre><code><span class="kw">def</span> <span class="fn">main</span>() -&gt; <span class="kw">None</span>:
     parser = argparse.ArgumentParser()
-    parser.add_argument(<span class="st">&quot;--date&quot;</span>, required=<span class="kw">True</span>, <span class="bl">help</span>=<span class="st">&quot;YYYY-MM-DD&quot;</span>)
+    parser.add_argument(<span class="st">&quot;--date&quot;</span>, required=<span class="kw">True</span>, help=<span class="st">&quot;YYYY-MM-DD&quot;</span>)
     parser.add_argument(<span class="st">&quot;--table&quot;</span>, choices=TABLES)
     args = parser.parse_args()
 
@@ -1321,16 +1329,16 @@ DROP_COLUMNS = {<span class="st">&quot;users&quot;</span>: [<span class="st">&qu
 </div>
 <div class="tab-panel" data-tab="d">
 <div class="intro"><h2>events_bronze (one-time events build)</h2><p>The events table has about 108 million rows and never changes. This file builds its partitioned Bronze copy once, and then skips the work on every later run. Source: <code>src/python/storage/events_bronze.py</code></p></div>
-<section class="segment" id="seg-d-1-imports" data-type="imports" data-lines="1-22">
+<section class="segment" id="seg-d-1-imports" data-type="imports" data-lines="1-23">
   <div class="segment-header">
     <button class="expand-toggle">&#9660;</button>
     <h2>Module docstring and imports</h2>
-    <span class="badge badge-imports">imports (L1-22)</span>
+    <span class="badge badge-imports">imports (L1-23)</span>
   </div>
   <div class="segment-body">
     <div class="segment-content">
       <div class="code-block">
-        <div class="code-header"><span>Python (L1-22)</span><button class="copy-button">Copy</button></div>
+        <div class="code-header"><span>Python (L1-23)</span><button class="copy-button">Copy</button></div>
         <div class="code-lines">
           <div class="line-numbers"><pre>1
 2
@@ -1353,7 +1361,8 @@ DROP_COLUMNS = {<span class="st">&quot;users&quot;</span>: [<span class="st">&qu
 19
 20
 21
-22</pre></div>
+22
+23</pre></div>
           <div class="code-content"><pre><code><span class="st">&quot;&quot;&quot;Build the Bronze events table if it does not exist yet (part of the Bronze step).</span>
 
 <span class="st">`events` is 108 million rows and does not change, so it is built once:</span>
@@ -1374,31 +1383,32 @@ DROP_COLUMNS = {<span class="st">&quot;users&quot;</span>: [<span class="st">&qu
 <span class="kw">from</span> google.cloud <span class="kw">import</span> bigquery
 
 <span class="kw">from</span> common.config <span class="kw">import</span> settings
+<span class="kw">from</span> common.retry <span class="kw">import</span> call_with_retry
 <span class="kw">from</span> storage.copy_events <span class="kw">import</span> copy_events
 <span class="kw">from</span> transform.run_sql <span class="kw">import</span> run_layer</code></pre></div>
         </div>
       </div>
       <div class="explanation">
         <h3>Module docstring and imports</h3>
-        <p>The docstring lists the two stages: copy the course table into Bronze, then run a SQL file that makes the partitioned table. The copy is needed because the course dataset is in another <span class="term" data-term="region">region</span>. A BigQuery query cannot read one region and write to another. It also shows how to repeat the build by hand: delete the table, or run the two commands yourself. The imports bring in the copy function, the SQL runner for the Bronze layer, and the BigQuery client.</p>
+        <p>The docstring lists the two stages: copy the course table into Bronze, then run a SQL file that makes the partitioned table. The copy is needed because the course dataset is in another <span class="term" data-term="region">region</span>. A BigQuery query cannot read one region and write to another. It also shows how to repeat the build by hand: delete the table, or run the two commands yourself. The imports bring in the copy function, the SQL runner for the Bronze layer, the BigQuery client, and <code>call_with_retry</code> from the common package.</p>
       </div>
     </div>
   </div>
 </section>
-<section class="segment" id="seg-d-2-constants" data-type="constants" data-lines="24-26">
+<section class="segment" id="seg-d-2-constants" data-type="constants" data-lines="25-27">
   <div class="segment-header">
     <button class="expand-toggle">&#9660;</button>
     <h2>Logger and table name</h2>
-    <span class="badge badge-constants">constants (L24-26)</span>
+    <span class="badge badge-constants">constants (L25-27)</span>
   </div>
   <div class="segment-body">
     <div class="segment-content">
       <div class="code-block">
-        <div class="code-header"><span>Python (L24-26)</span><button class="copy-button">Copy</button></div>
+        <div class="code-header"><span>Python (L25-27)</span><button class="copy-button">Copy</button></div>
         <div class="code-lines">
-          <div class="line-numbers"><pre>24
-25
-26</pre></div>
+          <div class="line-numbers"><pre>25
+26
+27</pre></div>
           <div class="code-content"><pre><code>log = logging.getLogger(<span class="bl">__name__</span>)
 
 TABLE = <span class="st">&quot;events_partitioned&quot;</span></code></pre></div>
@@ -1406,35 +1416,35 @@ TABLE = <span class="st">&quot;events_partitioned&quot;</span></code></pre></div
       </div>
       <div class="explanation">
         <h3>Logger and table name</h3>
-        <p><code>log</code> uses the module name, so lines from this file are easy to find in the output. <code>TABLE</code> holds the name <code>events_partitioned</code>. Both the existence check and the log lines use it. The name matches the table in <code>src/sql/bronze/01_events_partitioned.sql</code> and the dbt source in <code>sources.yaml</code>. If you rename it, change all three.</p>
+        <p><code>log</code> uses the module name, so lines from this file are easy to find in the output. <code>TABLE</code> holds the name <code>events_partitioned</code>. Both the existence check and the log lines use it. The name matches the table in <code>src/sql/bronze/01_events_partitioned.sql</code> and the dbt source in <code>_stylehub__sources.yaml</code>. If you rename it, change all three.</p>
       </div>
     </div>
   </div>
 </section>
-<section class="segment" id="seg-d-3-function" data-type="function" data-lines="29-36">
+<section class="segment" id="seg-d-3-function" data-type="function" data-lines="30-37">
   <div class="segment-header">
     <button class="expand-toggle">&#9660;</button>
     <h2>events_table_exists</h2>
-    <span class="badge badge-function">function (L29-36)</span>
+    <span class="badge badge-function">function (L30-37)</span>
   </div>
   <div class="segment-body">
     <div class="segment-content">
       <div class="code-block">
-        <div class="code-header"><span>Python (L29-36)</span><button class="copy-button">Copy</button></div>
+        <div class="code-header"><span>Python (L30-37)</span><button class="copy-button">Copy</button></div>
         <div class="code-lines">
-          <div class="line-numbers"><pre>29
-30
+          <div class="line-numbers"><pre>30
 31
 32
 33
 34
 35
-36</pre></div>
+36
+37</pre></div>
           <div class="code-content"><pre><code><span class="kw">def</span> <span class="fn">events_table_exists</span>() -&gt; <span class="bl">bool</span>:
     cfg = settings()
     client = bigquery.Client(project=cfg.project)
     <span class="kw">try</span>:
-        client.get_table(<span class="st">f&quot;</span>{cfg.project}<span class="st">.</span>{cfg.bronze}<span class="st">.</span>{TABLE}<span class="st">&quot;</span>)
+        call_with_retry(<span class="kw">lambda</span>: client.get_table(<span class="st">f&quot;</span>{cfg.project}<span class="st">.</span>{cfg.bronze}<span class="st">.</span>{TABLE}<span class="st">&quot;</span>))
     <span class="kw">except</span> NotFound:
         <span class="kw">return</span> <span class="kw">False</span>
     <span class="kw">return</span> <span class="kw">True</span></code></pre></div>
@@ -1442,24 +1452,23 @@ TABLE = <span class="st">&quot;events_partitioned&quot;</span></code></pre></div
       </div>
       <div class="explanation">
         <h3>events_table_exists</h3>
-        <p>The function asks BigQuery for the table with <code>get_table</code>. A <code>NotFound</code> error means the table is missing, and the function answers <code>False</code>. Any other error is not caught. A permission or network problem should stop the run, not look like a missing table. This check costs no scanned bytes, because it reads only the table description. The project, the dataset and the table name all come from the settings.</p>
+        <p>The function asks BigQuery for the table with <code>get_table</code>, inside <code>call_with_retry</code>, so a short network error is tried again. A <code>NotFound</code> error means the table is missing, and the function answers <code>False</code>. Any other error is not caught (after the retries are used up). A permission or network problem should stop the run, not look like a missing table. This check costs no scanned bytes, because it reads only the table description. The project, the dataset and the table name all come from the settings.</p>
       </div>
     </div>
   </div>
 </section>
-<section class="segment" id="seg-d-4-function" data-type="function" data-lines="39-48">
+<section class="segment" id="seg-d-4-function" data-type="function" data-lines="40-49">
   <div class="segment-header">
     <button class="expand-toggle">&#9660;</button>
     <h2>ensure_events_bronze: build only when missing</h2>
-    <span class="badge badge-function">function (L39-48)</span>
+    <span class="badge badge-function">function (L40-49)</span>
   </div>
   <div class="segment-body">
     <div class="segment-content">
       <div class="code-block">
-        <div class="code-header"><span>Python (L39-48)</span><button class="copy-button">Copy</button></div>
+        <div class="code-header"><span>Python (L40-49)</span><button class="copy-button">Copy</button></div>
         <div class="code-lines">
-          <div class="line-numbers"><pre>39
-40
+          <div class="line-numbers"><pre>40
 41
 42
 43
@@ -1467,7 +1476,8 @@ TABLE = <span class="st">&quot;events_partitioned&quot;</span></code></pre></div
 45
 46
 47
-48</pre></div>
+48
+49</pre></div>
           <div class="code-content"><pre><code><span class="kw">def</span> <span class="fn">ensure_events_bronze</span>() -&gt; <span class="bl">bool</span>:
     <span class="st">&quot;&quot;&quot;Build the table when it is missing. Return True if it was built, False if it was there.&quot;&quot;&quot;</span>
     <span class="kw">if</span> events_table_exists():
@@ -1487,24 +1497,24 @@ TABLE = <span class="st">&quot;events_partitioned&quot;</span></code></pre></div
     </div>
   </div>
 </section>
-<section class="segment" id="seg-d-5-main" data-type="main" data-lines="51-57">
+<section class="segment" id="seg-d-5-main" data-type="main" data-lines="52-58">
   <div class="segment-header">
     <button class="expand-toggle">&#9660;</button>
     <h2>Command line entry point</h2>
-    <span class="badge badge-main">main (L51-57)</span>
+    <span class="badge badge-main">main (L52-58)</span>
   </div>
   <div class="segment-body">
     <div class="segment-content">
       <div class="code-block">
-        <div class="code-header"><span>Python (L51-57)</span><button class="copy-button">Copy</button></div>
+        <div class="code-header"><span>Python (L52-58)</span><button class="copy-button">Copy</button></div>
         <div class="code-lines">
-          <div class="line-numbers"><pre>51
-52
+          <div class="line-numbers"><pre>52
 53
 54
 55
 56
-57</pre></div>
+57
+58</pre></div>
           <div class="code-content"><pre><code><span class="kw">def</span> <span class="fn">main</span>() -&gt; <span class="kw">None</span>:
     logging.basicConfig(level=logging.INFO)
     <span class="bl">print</span>(<span class="st">&quot;built&quot;</span> <span class="kw">if</span> ensure_events_bronze() <span class="kw">else</span> <span class="st">&quot;already there&quot;</span>)
