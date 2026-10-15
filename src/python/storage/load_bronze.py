@@ -35,13 +35,17 @@ def batch_ids_from_names(names: list[str]) -> list[str]:
 def list_batch_ids(prefix: str) -> list[str]:
     """The batch ids of one table and one day, read from the Raw Zone on GCS."""
     cfg = settings()
-    blobs = storage.Client(project=cfg.project).list_blobs(cfg.bucket, prefix=prefix)
-    return batch_ids_from_names([blob.name for blob in blobs])
+    client = storage.Client(project=cfg.project)
+    # The listing is lazy, so read it inside the retried function.
+    names = call_with_retry(
+        lambda: [blob.name for blob in client.list_blobs(cfg.bucket, prefix=prefix)]
+    )
+    return batch_ids_from_names(names)
 
 
 def table_exists(client: bigquery.Client, table_id: str) -> bool:
     try:
-        client.get_table(table_id)
+        call_with_retry(lambda: client.get_table(table_id))
     except NotFound:
         return False
     return True

@@ -18,6 +18,7 @@ from google.api_core.exceptions import NotFound
 from google.cloud import bigquery
 
 from common.config import settings
+from common.retry import call_with_retry
 from storage.copy_events import copy_events
 from transform.run_sql import run_layer
 
@@ -30,7 +31,7 @@ def events_table_exists() -> bool:
     cfg = settings()
     client = bigquery.Client(project=cfg.project)
     try:
-        client.get_table(f"{cfg.project}.{cfg.bronze}.{TABLE}")
+        call_with_retry(lambda: client.get_table(f"{cfg.project}.{cfg.bronze}.{TABLE}"))
     except NotFound:
         return False
     return True

@@ -6,8 +6,9 @@ If the variable is empty, nothing is sent. An alert must never crash the pipelin
 
 import json
 import logging
-import os
 import urllib.request
+
+from common.config import alert_webhook_url
 
 log = logging.getLogger(__name__)
 
@@ -17,7 +18,7 @@ REQUEST_TIMEOUT_SECONDS = 10  # A slow webhook must not hold up the pipeline.
 
 def send_alert(text: str) -> bool:
     """Return True if the message was sent."""
-    url = os.environ.get("ALERT_WEBHOOK_URL", "").strip()
+    url = alert_webhook_url()
     if not url:
         log.info("ALERT_WEBHOOK_URL is not set, so no alert was sent")
         return False

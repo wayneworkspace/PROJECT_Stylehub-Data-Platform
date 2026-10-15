@@ -43,7 +43,7 @@ def copy_events() -> int:
             print(f"copy job not found in {location}, trying the next region")
     else:
         raise SystemExit("The copy job could not run in either region.")
-    return client.get_table(target_id).num_rows
+    return call_with_retry(lambda: client.get_table(target_id)).num_rows
 
 
 def main() -> None:

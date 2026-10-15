@@ -17,6 +17,8 @@ def test_add_metadata_does_not_mutate_input():
 
 
 def test_raw_path_layout(monkeypatch):
+    monkeypatch.setenv("GCP_PROJECT_ID", "p")
+    monkeypatch.setenv("GCS_BUCKET", "b")
     monkeypatch.setenv("RAW_PREFIX", "raw/stylehub")
     path = raw_path("orders", "2026-10-01", "b1")
     assert path == "raw/stylehub/orders/date=2026-10-01/batch_id=b1/orders.parquet"

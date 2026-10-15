@@ -4,13 +4,13 @@ Ingestion only extracts and writes raw data. No transforming here.
 """
 
 import io
-import os
 import uuid
 from datetime import UTC, datetime
 
 import pandas as pd
 from google.cloud import storage
 
+from common.config import settings
 from common.retry import call_with_retry
 
 
@@ -27,7 +27,7 @@ def add_metadata(df: pd.DataFrame, source: str, batch_id: str) -> pd.DataFrame:
 
 
 def raw_path(table: str, data_date: str, batch_id: str) -> str:
-    prefix = os.environ.get("RAW_PREFIX", "raw/stylehub")
+    prefix = settings().raw_prefix
     return f"{prefix}/{table}/date={data_date}/batch_id={batch_id}/{table}.parquet"
 
 
@@ -39,7 +39,7 @@ def write_raw(df: pd.DataFrame, table: str, data_date: str, source: str) -> str:
     buffer = io.BytesIO()
     df.to_parquet(buffer, index=False)
 
-    bucket = storage.Client().bucket(os.environ["GCS_BUCKET"])
+    bucket = storage.Client().bucket(settings().bucket)
     path = raw_path(table, data_date, batch_id)
     blob = bucket.blob(path)
 

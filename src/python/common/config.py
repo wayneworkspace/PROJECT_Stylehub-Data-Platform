@@ -62,6 +62,14 @@ def settings() -> Settings:
     )
 
 
+def alert_webhook_url() -> str:
+    """The alert webhook URL, or "" when it is not set. It is a secret.
+
+    It is not part of Settings, so it is never passed to dbt or filled into SQL.
+    """
+    return os.environ.get("ALERT_WEBHOOK_URL", "").strip()
+
+
 def render_sql(path: Path) -> str:
     """Substitute ${project}, ${bronze}, ${silver}, ${gold}, ... in a SQL file."""
     return Template(path.read_text(encoding="utf-8")).substitute(asdict(settings()))

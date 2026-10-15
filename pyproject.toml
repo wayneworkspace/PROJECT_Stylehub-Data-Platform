@@ -27,7 +27,6 @@ build-backend = "hatchling.build"
 # Python packages live in src/python. This lets `python -m orchestration.run_daily` work from any folder.
 packages = [
     "src/python/common",
-    "src/python/sources",
     "src/python/ingestion",
     "src/python/storage",
     "src/python/transform",
