@@ -1,42 +1,80 @@
-# CLAUDE.md — rules for AI when writing code in this repo
+# CLAUDE.md
+
+Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
+
+**Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
+
+## 1. Think Before Coding
+
+**Don't assume. Don't hide confusion. Surface tradeoffs.**
+
+Before implementing:
+- State your assumptions explicitly. If uncertain, ask.
+- If multiple interpretations exist, present them - don't pick silently.
+- If a simpler approach exists, say so. Push back when warranted.
+- If something is unclear, stop. Name what's confusing. Ask.
+
+## 2. Simplicity First
+
+**Minimum code that solves the problem. Nothing speculative.**
+
+- No features beyond what was asked.
+- No abstractions for single-use code.
+- No "flexibility" or "configurability" that wasn't requested.
+- No error handling for impossible scenarios.
+- If you write 200 lines and it could be 50, rewrite it.
+
+Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
+
+## 3. Surgical Changes
+
+**Touch only what you must. Clean up only your own mess.**
+
+When editing existing code:
+- Don't "improve" adjacent code, comments, or formatting.
+- Don't refactor things that aren't broken.
+- Match existing style, even if you'd do it differently.
+- If you notice unrelated dead code, mention it - don't delete it.
+
+When your changes create orphans:
+- Remove imports/variables/functions that YOUR changes made unused.
+- Don't remove pre-existing dead code unless asked.
+
+The test: Every changed line should trace directly to the user's request.
+
+## 4. Goal-Driven Execution
+
+**Define success criteria. Loop until verified.**
+
+Transform tasks into verifiable goals:
+- "Add validation" → "Write tests for invalid inputs, then make them pass"
+- "Fix the bug" → "Write a test that reproduces it, then make it pass"
+- "Refactor X" → "Ensure tests pass before and after"
+
+For multi-step tasks, state a brief plan:
+```
+1. [Step] → verify: [check]
+2. [Step] → verify: [check]
+3. [Step] → verify: [check]
+```
+
+Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
+
+---
+
+**These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
+
+---
+
+# Project-specific rules (StyleHub)
+
+The four guidelines above come first. The rules below add the conventions of this repo.
 
 ## Project
 StyleHub Data Platform on GCP, built following a 5-session curriculum.
 Source (course CSV tables in BigQuery; Postgres and API are optional) → Raw Zone (GCS) → Bronze → Silver (fact/dim) → Gold (BigQuery).
 Curriculum stack: Python, SQL, GCS, BigQuery, Airbyte. dbt (`dbt/`) and Airflow (`deploy/airflow/`) are added on top.
 Spark is a later extension: do not add it unless asked (see `docs/design/EXTENDING.md`).
-
-## How to work (these rules come first)
-Rules to avoid common AI coding mistakes. They favor caution over speed. For a trivial task, use judgment.
-
-### 1. Think before coding
-- State your assumptions. If you are unsure, ask.
-- If a request has more than one reading, show the options. Do not pick one silently.
-- If a simpler way exists, say so and push back when it is right to.
-- If something is unclear, stop, name what is unclear and ask.
-
-### 2. Simplicity first
-- Write the minimum code that solves the problem. Nothing speculative.
-- No features beyond the request. No abstraction for code used once.
-- No "flexibility" or settings that nobody asked for.
-- No error handling for cases that cannot happen. (Best-effort recording and alerts are the exception: they must not crash the pipeline.)
-- If 200 lines could be 50, rewrite it. Ask: "Would a senior engineer call this overcomplicated?"
-- Keep code readable. Prefer clear over clever. One file, one job. Short functions with names that say what they do.
-
-### 3. Surgical changes
-- Touch only what you must. Every changed line must trace to the request.
-- Do not "improve" nearby code, comments or formatting. Do not refactor what is not broken.
-- Match the existing style, even if you would do it differently.
-- Remove imports, variables and functions that YOUR change made unused. If you see other dead code, mention it. Do not delete it.
-
-### 4. Goal-driven execution
-- Turn the task into a check you can run: "fix the bug" means write a test that fails, then make it pass. "Refactor" means tests pass before and after.
-- For a task with several steps, write a short plan, each step with how you will verify it:
-  1. Step -> verify: check
-  2. Step -> verify: check
-- "Make it work" is not a goal. Define success first, then loop until the check passes.
-
-These rules are working if diffs are smaller, there are fewer rewrites, and questions come before the work, not after a mistake.
 
 ## How changes are delivered
 - Work directly in the local folder `C:\Users\ADMIN\OneDrive\Desktop\End-to-End\PROJECT_Stylehub-Data-Platform`.
@@ -90,7 +128,7 @@ These rules are working if diffs are smaller, there are fewer rewrites, and ques
 - CI actions and pre-commit hooks are pinned to versions. Check the real latest tag before you bump one.
 
 ## Before saying it is done
-- `uv run ruff check .` and `uv run pytest` must pass. There is no Makefile: use these `uv run` commands.
+- `uv run ruff check .` and `uv run pytest` must pass. The Makefile only has `make clean` (removes caches and dbt build output): use the `uv run` commands for lint and tests.
 - Run `uvx pre-commit run --all-files`.
 - Update the README/docs when behavior changes.
 - Read your own diff (`git diff`). Each changed line must trace to the request (rule 3).

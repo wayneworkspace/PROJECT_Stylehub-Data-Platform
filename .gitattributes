@@ -1,2 +1,4 @@
 # Shell scripts must keep LF line endings, or bash on Linux fails with "\r: command not found".
 *.sh text eol=lf
+# make needs LF too: a CR at the end of a recipe line breaks the command.
+Makefile text eol=lf
