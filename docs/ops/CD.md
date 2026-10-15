@@ -1,14 +1,14 @@
 # CD: publish the image, and the VM pulls it
 
 > [!NOTE]
-> The systemd timers described here were removed from the repo. Airflow now schedules the pipeline (see [deploy/airflow/README.md](../../deploy/airflow/README.md)). Keep this page only as a starting point for a VM setup, and expect to adapt it. `deploy/pipeline/run_on_vm.sh` is still there.
+> Airflow schedules the pipeline (see [deploy/airflow/README.md](../../deploy/airflow/README.md)). This page covers only how the image is published and how a VM pulls it. The VM script is `deploy/pipeline/run_on_vm.sh`.
 
-CI checks the code. CD ships it. After CI passes on `main`, GitHub builds the Docker image and pushes it to Google Artifact Registry. The VM pulls the new image the next time a timer runs.
+CI checks the code. CD ships it. After CI passes on `main`, GitHub builds the Docker image and pushes it to Google Artifact Registry. The VM pulls the new image the next time a job runs on it.
 
 GitHub never connects to the VM. So there is no SSH key in GitHub and no open port on the VM.
 
 > [!WARNING]
-> I could not run these steps on a real GCP project or on GitHub. The workflow file and the script parse, and the script passes a test with a fake `docker`. You are the first person to run it end to end. Fix what breaks and update this page.
+> The workflow has run on GitHub and was green: it signs in with Workload Identity Federation and pushes the image. The VM part has not run yet, because no VM has pulled the image. The script passes a test with a fake `docker`. You are the first person to run that part. Fix what breaks and update this page.
 
 ## How it flows
 
@@ -93,7 +93,7 @@ Set `STYLEHUB_IMAGE` to a commit tag instead of `latest`, for example `...styleh
 
 | Area | Limit |
 |---|---|
-| Deploy | The VM updates only when a timer runs, not the moment you push. |
+| Deploy | The VM updates only when a job runs on it, not the moment you push. |
 | Version pins | `google-github-actions/auth@v3` is pinned to the major version. Pin a full tag after you check the latest release. |
 | Old images | They stay in Artifact Registry and cost a little storage. Add a cleanup rule later. |
 | Terraform | The commands above are typed by hand. Terraform can describe them later. |

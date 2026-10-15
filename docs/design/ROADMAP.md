@@ -33,7 +33,7 @@
 - [ ] Fill in the design table (question, event, grain, measure, dimensions) in `docs/design/DECISIONS.md`
 
 ## DevOps (done)
-- [x] Dockerfiles in `docker/` and one `docker-compose.yaml` (profiles: sample Postgres, pipeline, Airflow)
+- [x] Dockerfiles in `deploy/` and one `docker-compose.yaml` (profiles: sample Postgres, pipeline, Airflow)
 - [x] GitHub Actions CI: pre-commit, lint, unit and integration tests, Docker build
 - [x] Pre-commit hooks (ruff, gitleaks, file checks) and a locked `uv.lock`
 - [x] Logging, `pipeline_runs` history table and Discord failure alerts
@@ -45,3 +45,5 @@ See [DEVOPS.md](../ops/DEVOPS.md): run on a real VM, retries, a "did not run" al
 
 ## After the curriculum
 See [EXTENDING.md](EXTENDING.md): dbt and Airflow are in the repo (run on BigQuery from a laptop). Next: Spark, CDC and Kafka. Also add daily incremental data (1,000 to 4,000 rows) so the pipeline runs for real.
+
+Also open: add `dim_date`, and add an architecture diagram image.

@@ -54,6 +54,77 @@ Airbyte sync modes (from session 4):
 
 Operations: stop the Airbyte VM after use and restrict the port 8000 firewall rule to your own IP.
 
+## Reference tables
+
+These tables were moved here from the README.
+
+### Code layers
+
+| Layer | Responsibility | Files |
+|---|---|---|
+| Ingestion | Read the course tables. Write raw Parquet files. Nothing else. | `src/python/ingestion/csv_tables.py` (used by the pipeline). `database.py` (Postgres) and `api.py` are kept for a live source. |
+| Load | Load the latest Raw batch of each day into Bronze. Build the big `events` table once. | `src/python/storage/load_bronze.py`, `events_bronze.py`, `copy_events.py` |
+| Transform | Build Silver and Gold with dbt. dbt tests are the data checks. | `src/python/transform/run_dbt.py`, `dbt/` |
+| Table setup | Run the SQL files of the Bronze layer (partitioned events). | `src/python/transform/run_sql.py`, `src/sql/` |
+| Runner | Run all steps for one date. | `src/python/orchestration/run_daily.py` |
+| Config | Read environment variables. Fill `${project}` and similar names in SQL. | `src/python/common/config.py` |
+
+### Data layers
+
+| Layer | Where | Contents |
+|---|---|---|
+| Raw Zone | GCS: `raw/stylehub/<table>/date=<date>/batch_id=<id>/` | Files as fetched. Each has `_ingested_at`, `_source` and `_batch_id`. |
+| Bronze | BigQuery: `stylehub_bronze` | A copy of the source. One snapshot per day. |
+| Silver | BigQuery: `stylehub_silver` | One latest row per id, with correct types. Built as a star schema. |
+| Gold | BigQuery: `stylehub_gold` | Business tables that hold the rules. |
+
+### Silver and Gold tables
+
+| Table | Layer | What one row means |
+|---|---|---|
+| `fact_order_items` | Silver | One item in an order |
+| `fact_orders` | Silver | One order |
+| `fact_shipments` | Silver | One shipped order |
+| `fact_events` | Silver | One event (view, cart, purchase). About 108 million rows. Incremental. |
+| `dim_products` | Silver | One product |
+| `dim_users` | Silver | One customer |
+| `daily_revenue` | Gold | Orders and revenue for one day (no Cancelled orders) |
+| `monthly_revenue_by_category` | Gold | Revenue and profit for one category in one month |
+| `return_rate_by_state` | Gold | Share of returned orders in one state |
+| `avg_delivery_days_by_state` | Gold | Average delivery time in one state |
+| `daily_events_by_type` | Gold | Events, users and sessions for one day and one event type |
+| `funnel_by_category` | Gold | Views, cart adds and purchases for one product category |
+
+### dbt folders
+
+The dbt folders follow the dbt Labs layout. The datasets and the step names keep the Silver and Gold names.
+
+| dbt folder | Models | Dataset | Built by step |
+|---|---|---|---|
+| `models/staging/stylehub/` | 5 views `stg_stylehub__*`. Latest row per id, types cast. Only these call `source()` | `stylehub_silver` | `silver` |
+| `models/intermediate/` | 2 views `int_*`: items with product cost, orders with item totals | `stylehub_silver` | `silver` |
+| `models/marts/core/` | 6 tables: `dim_products`, `dim_users`, `fact_orders`, `fact_order_items`, `fact_shipments`, `fact_events` | `stylehub_silver` | `silver` |
+| `models/marts/reporting/` | 6 tables, the Gold business tables | `stylehub_gold` | `gold` |
+
+Tags, materialization and dataset are set per folder in `dbt/dbt_project.yml`. Each folder has its own `_<folder>__models.yaml`.
+
+### Key design decisions (details)
+
+| Decision | How it works |
+|---|---|
+| Raw Zone is append-only | Each run writes a new file under a new `batch_id`. Nothing is overwritten. |
+| Bronze keeps one batch per day | Running a day twice replaces that day's batch, so rows are not doubled. Each day stays as its own snapshot. Silver keeps the newest row of each id. |
+| Latest row per id | Silver keeps the newest version of each id with `QUALIFY ROW_NUMBER()`. |
+| Full load for CSV | The course CSV files have no `updated_at`, so every run reads whole tables. Silver keeps the latest row of each id. |
+| Lookback window | Only for the Postgres path. It reads one extra day before the target date. |
+| Rules live in Gold | Gold drops `Cancelled` orders. If the rule changes, rebuild Gold only. |
+| Grain comes first | Each Silver file states its grain at the top. A check compares row count with distinct id count. |
+| Partition and cluster | `events_partitioned` is split by day and clustered by `event_type` and `product_id`. It is built once; the course `events` table is in the US, so it is copied to Bronze first. |
+| Incremental events | `fact_events` rebuilds the newest 3 days (`insert_overwrite` by `event_date`, variable `events_lookback_days`). Use `--full-refresh` to rebuild all. |
+| Airflow operators | `ExternalPythonOperator` runs the Python steps (ingest, bronze) in a separate environment. `BashOperator` runs the dbt steps (silver, gold) through the CLI. `EmptyOperator` marks the start and the end. `PythonOperator` is not used, because Airflow pins library versions that clash with the pipeline. |
+| Logic stays in SQL | SQL files hold the business logic. Python only runs them. |
+| CTEs, no subqueries | Every SQL file uses CTEs. A test fails if it finds a subquery. |
+
 ## Extension points
 
 Every step is an independent CLI with `--date` and is safe to re-run. See [EXTENDING.md](EXTENDING.md) for how to add dbt, Airflow and Spark.

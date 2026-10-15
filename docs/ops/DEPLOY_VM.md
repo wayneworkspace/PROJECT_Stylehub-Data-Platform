@@ -1,12 +1,12 @@
 # Run the pipeline on a GCP VM
 
 > [!NOTE]
-> The systemd timers described here were removed from the repo. Airflow now schedules the pipeline (see [deploy/airflow/README.md](../../deploy/airflow/README.md)). Keep this page only as a starting point for a VM setup, and expect to adapt it. `deploy/pipeline/run_on_vm.sh` is still there.
+> Airflow schedules the pipeline (see [deploy/airflow/README.md](../../deploy/airflow/README.md)). Use this page as a starting point if you want to run the steps on a VM with cron instead, and expect to adapt it. The VM script is `deploy/pipeline/run_on_vm.sh`.
 
 This page shows how to run the pipeline every day on a small VM, with two service accounts that each do one job.
 
 > [!WARNING]
-> I could not run these steps on a real GCP project. The unit files pass `systemd-analyze` and the script passes `bash -n`, but you are the first person to run them on a VM. Fix what breaks and update this page.
+> I could not run these steps on a real GCP project. The script passes `bash -n`, but you are the first person to run these steps on a VM. Fix what breaks and update this page.
 
 ## The plan
 
@@ -78,14 +78,7 @@ sudo chmod 600 /etc/stylehub/pipeline.env
 
 The folder is root-only, so the file mode `444` is safe.
 
-## 4. Turn on the timers
-
-```bash
-sudo cp /opt/stylehub/deploy/stylehub-*.service /opt/stylehub/deploy/stylehub-*.timer /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now stylehub-ingest.timer stylehub-transform.timer
-systemctl list-timers 'stylehub-*'
-```
+## 4. Run a job by hand
 
 Run a job by hand first, with a date you know:
 
@@ -93,29 +86,27 @@ Run a job by hand first, with a date you know:
 sudo DATA_DATE=2026-10-01 /opt/stylehub/deploy/pipeline/run_on_vm.sh ingest ingest /etc/stylehub/ingest-sa.json
 ```
 
-`systemctl start stylehub-ingest` also works, but it always uses yesterday.
+Without `DATA_DATE`, the script uses yesterday (UTC).
 
 ## 5. Read the logs
 
 | Question | Command |
 |---|---|
-| What did the last ingest print? | `journalctl -u stylehub-ingest -n 100 --no-pager` |
-| Did the job run today? | `systemctl status stylehub-ingest.service` |
-| When is the next run? | `systemctl list-timers 'stylehub-*'` |
+| Did the job run today? | `SELECT step, status, started_at FROM stylehub_ops.pipeline_runs ORDER BY started_at DESC LIMIT 10` |
 | Which steps failed this week? | `SELECT * FROM stylehub_ops.pipeline_runs WHERE status = 'failed' ORDER BY started_at DESC` |
 
-## Same thing with cron
+## Run it every day with cron
 
-If you prefer cron, add this to `sudo crontab -e`. It does the same work, but you lose `journalctl` and the catch-up after a reboot (`Persistent=true`).
+Add this to `sudo crontab -e`:
 
 ```cron
 0 1 * * *  /opt/stylehub/deploy/pipeline/run_on_vm.sh ingest ingest /etc/stylehub/ingest-sa.json
-30 1 * * * /opt/stylehub/deploy/pipeline/run_on_vm.sh bronze checks /etc/stylehub/transform-sa.json
+30 1 * * * /opt/stylehub/deploy/pipeline/run_on_vm.sh bronze gold /etc/stylehub/transform-sa.json
 ```
 
 ## Stop the cost
 
-Stop the VM when you are not using it: `gcloud compute instances stop stylehub-vm --zone asia-southeast1-b`. A stopped VM does not run the timers.
+Stop the VM when you are not using it: `gcloud compute instances stop stylehub-vm --zone asia-southeast1-b`. A stopped VM does not run any job.
 
 ## Did not run alert
 

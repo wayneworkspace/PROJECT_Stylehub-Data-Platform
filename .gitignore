@@ -4,7 +4,7 @@ __pycache__/
 .env
 secrets/
 docs/assets/*
-!docs/assets/icon-*.png
+!docs/assets/*.png
 logs/
 *.json.key
 .idea/

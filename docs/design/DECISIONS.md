@@ -6,6 +6,8 @@ Record every decision together with real measurements. This is where you answer 
 
 Current setup: `PARTITION BY DATE(event_time) CLUSTER BY event_type, product_id`.
 
+_Not measured yet. Run each query with a dry run and fill in the table._
+
 | Query | Bytes processed | Uses partition/cluster |
 |---|---|---|
 | Top 10 products purchased in one week | _fill in after measuring_ | partition + cluster |
@@ -16,13 +18,15 @@ If queries by `user_id` are common: add `user_id` to the cluster key, because Bi
 
 ## 2. Watermark for `order_items` (session 2)
 
-_Fill in after checking: when an order changes status, does `updated_at` of its `order_items` change? Pick the column and the lookback from the result._
+Course CSV path (the one `run_daily` uses): the CSV files have no `updated_at` column, so there is no watermark. Every run is a full load, and Silver keeps the latest row of each id (see [ROADMAP.md](ROADMAP.md), session 2).
+
+_Postgres path (not run on a real source yet): fill in after checking whether `updated_at` of `order_items` changes when an order changes status. Pick the column and the lookback from the result._
 
 Short README answering 3 questions: why that column and how many days of lookback; what the Raw Zone contains after a re-run and how duplicates are dropped; whether the pipeline notices when the source deletes a row.
 
 ## 3. Sync mode per table (session 4)
 
-_Fill in per table from ARCHITECTURE.md: one sentence of reasoning and the row count compared with the source._
+_Not started: Airbyte (session 4) is not set up yet. Fill in per table from ARCHITECTURE.md: one sentence of reasoning and the row count compared with the source._
 
 ## 4. Star or Snowflake (session 5)
 

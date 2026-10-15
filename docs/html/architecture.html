@@ -5030,7 +5030,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <path data-edge-from="raw" data-edge-to="bronze" data-edge-label="latest batch" data-edge-key="1" data-edge-id="to-bronze" data-composition-points="315,186;315,242" d="M 315 186 L 315 242" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
         <path data-edge-from="copy" data-edge-to="eventsp" data-edge-label="partition" data-edge-key="2" data-edge-id="events-ctas" data-composition-points="156,385;259,385" d="M 156 385 L 259 385" class="a-dashed" stroke-width="1.4" marker-end="url(#arrowhead-dashed)"/>
         <path data-edge-from="bronze" data-edge-to="silver" data-edge-label="dbt build" data-edge-key="3" data-edge-id="to-silver" data-composition-points="371,271;474,271" d="M 371 271 L 474 271" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
-        <path data-edge-from="eventsp" data-edge-to="factevents" data-edge-label="newest day" data-edge-key="4" data-edge-id="events-silver" data-composition-points="371,385;474,385" d="M 371 385 L 474 385" class="a-dashed" stroke-width="1.4" marker-end="url(#arrowhead-dashed)"/>
+        <path data-edge-from="eventsp" data-edge-to="factevents" data-edge-label="last 3 days" data-edge-key="4" data-edge-id="events-silver" data-composition-points="371,385;474,385" d="M 371 385 L 474 385" class="a-dashed" stroke-width="1.4" marker-end="url(#arrowhead-dashed)"/>
         <path data-edge-from="silver" data-edge-to="gold" data-edge-label="rules" data-edge-key="5" data-edge-id="to-gold" data-composition-points="586,271;689,271" d="M 586 271 L 689 271" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
         <path data-edge-from="factevents" data-edge-to="goldev" data-edge-label="metrics" data-edge-key="6" data-edge-id="events-gold" data-composition-points="586,385;689,385" d="M 586 385 L 689 385" class="a-dashed" stroke-width="1.4" marker-end="url(#arrowhead-dashed)"/>
 
@@ -5157,9 +5157,9 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <rect x="394.45" y="250" width="56.1" height="16" rx="4" class="c-mask"/>
           <text x="422.5" y="261" class="t-edge-emphasis" font-size="8" text-anchor="middle">dbt build</text>
         </g>
-        <g data-detail="context" data-edge-from="eventsp" data-edge-to="factevents" data-edge-label="newest day" data-edge-key="4" data-edge-id="events-silver">
+        <g data-detail="context" data-edge-from="eventsp" data-edge-to="factevents" data-edge-label="last 3 days" data-edge-key="4" data-edge-id="events-silver">
           <rect x="392" y="364" width="61" height="16" rx="4" class="c-mask"/>
-          <text x="422.5" y="375" class="t-edge-dashed" font-size="8" text-anchor="middle">newest day</text>
+          <text x="422.5" y="375" class="t-edge-dashed" font-size="8" text-anchor="middle">last 3 days</text>
         </g>
         <g data-detail="context" data-edge-from="silver" data-edge-to="gold" data-edge-label="rules" data-edge-key="5" data-edge-id="to-gold">
           <rect x="619.25" y="250" width="36.5" height="16" rx="4" class="c-mask"/>
@@ -5382,7 +5382,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <ul>
           <li>events (108M rows) is copied once, because its dataset is in another region</li>
           <li>events_partitioned is built once and skipped on later runs</li>
-          <li>fact_events rebuilds only the newest day</li>
+          <li>fact_events rebuilds only the newest 3 days (events_lookback_days)</li>
         </ul>
       </div>
 

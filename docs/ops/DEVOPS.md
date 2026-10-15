@@ -30,7 +30,7 @@ CI does not call Google Cloud. It has no keys, so the BigQuery and GCS steps are
 
 `dev/postgres/init/01_seed.sql` is fixed on purpose, so tests can count on it. For the date 2026-10-01, the lookback window returns 24 orders and 46 order items. Order 100 tests a late update. Order 101 is too old and must stay out.
 
-If you change this file, update `src/tests/test_ingestion_integration.py` too.
+If you change this file, update `src/tests/ingestion/optional/test_ingestion_integration.py` too.
 
 ## Next steps
 

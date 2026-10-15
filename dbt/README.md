@@ -1,7 +1,7 @@
 # dbt project
 
 dbt builds the **Silver** and **Gold** layers and runs their tests.
-Bronze is loaded by Python, so dbt only reads it (see `models/sources.yaml`).
+Bronze is loaded by Python, so dbt only reads it (see `models/staging/stylehub/_stylehub__sources.yaml`).
 
 ## Folders (dbt Labs layout)
 
@@ -40,6 +40,6 @@ uv run python -m transform.run_dbt all --command parse
 
 ## Good to know
 
-- dbt replaced the old SQL files for Silver, Gold and checks. They are in `to_delete/` if you want to compare.
+- dbt replaced the old SQL files for Silver, Gold and checks.
 - The gold step also runs the test `gold_matches_silver`. That is why the silver step skips tag `gold`.
 - Relationship tests only warn. Real data can have orphan ids. Change `severity` to `error` when the data is clean.
