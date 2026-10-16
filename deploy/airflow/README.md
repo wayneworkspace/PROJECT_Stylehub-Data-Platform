@@ -68,8 +68,11 @@ How it works:
 ## Run old days (backfill)
 
 ```powershell
-docker compose --env-file secrets/.env --profile airflow exec airflow-scheduler airflow backfill create --dag-id stylehub_daily --from-date 2026-09-25 --to-date 2026-10-01
+docker compose --env-file secrets/.env --profile airflow exec airflow-scheduler airflow backfill create --dag-id stylehub_daily --from-date 2026-09-25 --to-date 2026-10-01 --max-active-runs 1
 ```
+
+Always add `--max-active-runs 1`. The DAG limit `max_active_runs=1` does not apply to a backfill, and runs at the same time
+share one Bronze staging table per source table (`_stg_<table>`), so they break each other.
 
 This replaced `orchestration/backfill.py`. Every run is safe to repeat.
 
