@@ -5,7 +5,7 @@ The repo is split so new tools can be added without rewriting. What stays fixed 
 ## dbt (added, see `dbt/README.md`)
 
 `dbt/` has 19 models in the dbt Labs layout (staging, intermediate, marts/core, marts/reporting), `sources` for Bronze, and the checks as tests.
-Run it with `python -m transform.run_dbt silver|gold`. `run_daily` calls it in the silver and gold steps.
+Run it with `python -m stylehub.transform.run_dbt silver|gold`. `run_daily` calls it in the silver and gold steps.
 `fact_events` is incremental (`insert_overwrite` by `event_date`). Not done yet: incremental for the other fact tables (they are small), and dbt for `bronze/01_events_partitioned.sql`.
 
 ## Airflow (added, see `deploy/airflow/README.md`)
@@ -23,4 +23,4 @@ Use `airflow dags backfill` and the DAG schedule for past dates. The whole DAG h
 
 ## Replacing Python ingestion with Airbyte
 
-`src/python/ingestion/` and Airbyte both write to the Raw Zone/Bronze. Switch the source of a table by disabling that table's ingest step in `run_daily.py`. If Airbyte loads Bronze directly, change `_ingested_at` to `_airbyte_extracted_at` in `dbt/models/silver/`.
+`src/stylehub/ingestion/` and Airbyte both write to the Raw Zone/Bronze. Switch the source of a table by disabling that table's ingest step in `run_daily.py`. If Airbyte loads Bronze directly, change `_ingested_at` to `_airbyte_extracted_at` in `dbt/models/silver/`.

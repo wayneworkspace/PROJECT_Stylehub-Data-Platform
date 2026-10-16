@@ -1,17 +1,17 @@
 # Roadmap by session
 
 ## Session 1: Data Platform
-- [x] Code: `src/python/storage/setup/setup_gcp.py` and `src/python/storage/setup/load_csv.py` (run on a real project)
+- [x] Code: `src/stylehub/setup/setup_gcp.py` and `src/stylehub/setup/load_csv.py` (run on a real project)
 - [x] GCP project, GCS bucket, BigQuery datasets, service account
 - [x] Upload CSVs to GCS, load the 5 tables into BigQuery
 - [ ] Compare bytes processed with the original file size
-- [x] `events_partitioned` (`src/sql/bronze/01_events_partitioned.sql`, built by `storage.events_bronze`)
+- [x] `events_partitioned` (`src/stylehub/sql/bronze/01_events_partitioned.sql`, built by `bronze.events_bronze`)
 - [ ] Measure 3 queries and record them in `docs/design/DECISIONS.md`, section 1
 
 ## Session 2: Data Ingestion
 - [x] Code: full load, schema check (run on the real CSV tables)
 - [x] Checked: the CSV files have no `updated_at`, so the CSV path uses a full load, not a watermark
-- [x] `ingestion.csv_tables` for orders, order_items, products and users
+- [x] `stylehub.ingestion.csv_tables` for orders, order_items, products and users
 - [ ] Backfill 7 days with Airflow; check that re-running does not change the distinct id count
 
 ## Session 3: Transform and layering
@@ -33,7 +33,7 @@
 - [ ] Fill in the design table (question, event, grain, measure, dimensions) in `docs/design/DECISIONS.md`
 
 ## DevOps (done)
-- [x] Dockerfiles in `deploy/` and one `docker-compose.yaml` (profiles: sample Postgres, pipeline, Airflow)
+- [x] Dockerfiles in `deploy/` and one `docker-compose.yaml` (profiles: pipeline, Airflow)
 - [x] GitHub Actions CI: pre-commit, lint, unit and integration tests, Docker build
 - [x] Pre-commit hooks (ruff, gitleaks, file checks) and a locked `uv.lock`
 - [x] Logging, `pipeline_runs` history table and Discord failure alerts
@@ -47,3 +47,8 @@ See [DEVOPS.md](../ops/DEVOPS.md): run on a real VM, retries, a "did not run" al
 See [EXTENDING.md](EXTENDING.md): dbt and Airflow are in the repo (run on BigQuery from a laptop). Next: Spark, CDC and Kafka. Also add daily incremental data (1,000 to 4,000 rows) so the pipeline runs for real.
 
 Also open: add `dim_date`, and add an architecture diagram image.
+
+## Later
+- [x] Airflow moved to 3.3.2 (DAG loads in a real install). Still to do: build the image, run `docker compose up` and a real DAG run
+- [x] Compile-time lookup replaced by one lookup per run (`bronze_snapshot_dates`). A `*_latest` view in Bronze only if a BigQuery dry run shows it prunes partitions
+- [ ] Run the new Gold contracts and unit tests on BigQuery once, then add them to Silver

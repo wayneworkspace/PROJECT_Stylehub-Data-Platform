@@ -19,6 +19,7 @@ Not sure which page to open? Find your goal in the first table.
 | Understand CI, Docker and pre-commit | [DEVOPS.md](ops/DEVOPS.md) |
 | Publish the Docker image | [CD.md](ops/CD.md) |
 | Run the pipeline on a GCP VM | [DEPLOY_VM.md](ops/DEPLOY_VM.md) |
+| Set up Google Cloud with Terraform | [TERRAFORM.md](ops/TERRAFORM.md) |
 | See what is done and what comes next | [ROADMAP.md](design/ROADMAP.md) |
 | See what the project cannot do yet | [LIMITATIONS.md](design/LIMITATIONS.md) |
 
@@ -67,8 +68,7 @@ Not sure which page to open? Find your goal in the first table.
 │       ├── dags/stylehub_daily.py  # Daily DAG: start -> ingest -> bronze -> silver -> gold -> end
 │       ├── Dockerfile       # Image for Airflow, with the pipeline packages inside
 │       └── README.md        # How to run Airflow
-├── dev/                     # Sample data for local tests (never deployed)
-│   └── postgres/init/       # Seed SQL for the local Postgres
+├── infra/terraform/         # Google Cloud as code: bucket, datasets, service accounts, GitHub login
 ├── dbt/                     # Silver and Gold as dbt models, with tests
 │   ├── models/              # dbt Labs layout, see the table below
 │   │   ├── staging/stylehub/       # stg_stylehub__*: 1:1 with Bronze, latest row, cast types
@@ -92,53 +92,54 @@ Not sure which page to open? Find your goal in the first table.
 │       ├── RUN_END_TO_END.md  # Step-by-step: run the whole pipeline
 │       ├── CD.md              # Publish the image and let the VM pull it
 │       ├── DEPLOY_VM.md       # Run the pipeline on a GCP VM
+│       ├── TERRAFORM.md       # Google Cloud as code (not run yet)
 │       └── DEVOPS.md          # CI, Docker, pre-commit and what comes next
 ├── src/
-│   ├── python/
+│   ├── stylehub/                    # The one Python package: python -m stylehub.<stage>.<module>
 │   │   ├── common/
-│   │   │   ├── config.py            # Settings and SQL placeholders
-│   │   │   └── retry.py             # Try again, with growing waits, after a short BigQuery or GCS error
+│   │   │   ├── config.py            # Settings from environment variables, and the project paths
+│   │   │   ├── sql.py               # Fill ${project}, ${bronze} and the like in a SQL file
+│   │   │   ├── retry.py             # Try again, with growing waits, after a short BigQuery or GCS error
+│   │   │   ├── ids.py               # One time-sorted id for run ids and batch ids
+│   │   │   └── bq.py                # table_exists, used by the Bronze steps
 │   │   ├── ingestion/               # 1. Ingestion: source -> Raw Zone, unchanged
 │   │   │   ├── csv_tables.py        # Course tables -> Raw Zone: full load (used by the pipeline)
-│   │   │   ├── schema_check.py      # Stop when the source changes its columns
+│   │   │   ├── runner.py            # Steps every source shares: check schema, write Raw or dry run
+│   │   │   ├── schema_check.py      # Stop when the source changes its columns (types, NULL-only columns)
 │   │   │   ├── raw_writer.py        # Write Parquet and metadata columns to GCS
-│   │   │   └── optional/            # NOT used by run_daily. Kept for a live Postgres or API source
-│   │   │       ├── database.py      # Postgres -> Raw Zone: incremental or full load
-│   │   │       ├── api.py           # StyleHub API -> Raw Zone
-│   │   │       └── sources/         # The clients: postgres.py and stylehub_api.py
-│   │   ├── storage/                 # 2. Storage: the daily Bronze steps
-│   │   │   ├── load_bronze.py       # Raw Zone -> Bronze (latest batch of the day)
+│   │   ├── bronze/                  # 2. Bronze: Raw Zone -> BigQuery Bronze (daily steps)
+│   │   │   ├── load_bronze.py       # Raw Zone -> Bronze (latest batch of the day; checks row counts; 30-day snapshot expiry)
 │   │   │   ├── copy_events.py       # Copy events from the US dataset to Bronze (one time)
-│   │   │   ├── events_bronze.py     # Build events_partitioned if it is missing
-│   │   │   └── setup/               # Run once by hand, not by run_daily (session 1)
-│   │   │       ├── setup_gcp.py     # Create the bucket and the datasets
-│   │   │       └── load_csv.py      # Local CSV -> bucket -> BigQuery
+│   │   │   ├── events_bronze.py     # One-time bootstrap of events_partitioned (needs the events copy)
+│   │   │   └── run_sql.py           # Run the SQL files of src/stylehub/sql/ (bronze and ops)
+│   │   ├── setup/                   # Run once by hand, not by run_daily (session 1)
+│   │   │   ├── setup_gcp.py         # Create the bucket and the datasets
+│   │   │   └── load_csv.py          # Local CSV -> bucket -> BigQuery (the course tables)
 │   │   ├── transform/               # 3. Transform: dbt for Silver and Gold
-│   │   │   ├── run_sql.py           # Run the SQL files of the Bronze layer
 │   │   │   └── run_dbt.py           # Run dbt for Silver or Gold (models + tests)
 │   │   └── orchestration/           # Runs the stages in order
 │   │       ├── run_daily.py         # Run all steps for one date, with logs and alerts
 │   │       ├── runs.py              # Save one row per step in BigQuery (keeps a file copy if that fails)
 │   │       ├── alerts.py            # Send a message when a step fails
 │   │       └── check_freshness.py   # Alert when no good run happened lately
-│   ├── sql/
-│   │   ├── bronze/                  # Table setup (partitioned events)
-│   │   └── ops/                     # The pipeline_runs table
-│   └── tests/                       # Same stages as src/python
+│   │   └── sql/                     # Plain SQL that Python runs (inside the package)
+│   │       ├── bronze/              # Table setup (partitioned events)
+│   │       └── ops/                 # The pipeline_runs table
+│   └── tests/                       # Same stages as src
 │       ├── ingestion/               # Raw Zone writer, schema check, full load
-│       │   └── optional/            # Postgres and API code: clients, window, integration tests
-│       ├── storage/                 # Bronze load, events copy
-│       │   └── setup/               # Bucket, datasets, CSV load
+│       ├── bronze/                  # Bronze load, events copy
+│       ├── setup/                   # Bucket, datasets, CSV load
 │       ├── transform/               # SQL files, dbt project, business rules
 │       ├── orchestration/           # Run history, alerts, Airflow DAG
-│       └── common/                  # Config
+│       ├── common/                  # Config, retry, ids
+│       └── conftest.py              # Fake settings for every test (no real secrets/.env)
 ├── .dockerignore
 ├── .env.example             # Names of ALL settings (pipeline and Airflow). Copy to secrets/.env.
 ├── .gitignore
 ├── .pre-commit-config.yaml  # Checks that run before each commit
 ├── Makefile                 # `make clean` removes caches and dbt build output
 ├── CLAUDE.md                # Rules for AI assistants and contributors
-├── docker-compose.yaml      # ONE compose file. Profiles: dev (sample Postgres), pipeline, airflow
+├── docker-compose.yaml      # ONE compose file. Profiles: pipeline, airflow
 ├── pyproject.toml           # Dependencies and tool settings
 ├── README.md
 └── uv.lock                  # Exact package versions

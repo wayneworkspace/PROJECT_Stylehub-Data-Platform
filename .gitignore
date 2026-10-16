@@ -19,3 +19,17 @@ data/
 to_delete/
 docs/DATA_PROFILE.md
 dbt/.user.yml
+
+.coverage*
+coverage.xml
+
+
+# Terraform: local state holds resource ids and can hold secrets. Never commit it.
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+terraform.tfvars
+*.auto.tfvars
+# The lock file IS committed: it pins the provider version.
+!.terraform.lock.hcl

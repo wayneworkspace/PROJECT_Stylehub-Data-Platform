@@ -363,7 +363,7 @@ body.mode-explain .segment-content { grid-template-columns: 1fr; }
 
     <div class="main" id="mainContent">
       <div class="tab-panel active" data-tab="a">
-<div class="intro"><h2>run_daily (runner)</h2><p>This is the runner. It owns the list of steps (ingest, bronze, silver, gold) and runs them for one date. You can call it from a terminal, and Airflow calls the same functions. Every other tab in this walkthrough is a piece that this file calls. Source: <code>src/python/orchestration/run_daily.py</code></p></div>
+<div class="intro"><h2>run_daily (runner)</h2><p>This is the runner. It owns the list of steps (ingest, bronze, silver, gold) and runs them for one date. You can call it from a terminal, and Airflow calls the same functions. Every other tab in this walkthrough is a piece that this file calls. Source: <code>src/python/stylehub/orchestration/run_daily.py</code></p></div>
 <section class="segment" id="seg-a-1-imports" data-type="imports" data-lines="1-24">
   <div class="segment-header">
     <button class="expand-toggle">&#9660;</button>
@@ -407,7 +407,7 @@ body.mode-explain .segment-content { grid-template-columns: 1fr; }
 <span class="st">Every step is logged, recorded in BigQuery (pipeline_runs) and sends an alert if it fails.</span>
 
 <span class="st">Usage:</span>
-<span class="st">    python -m orchestration.run_daily --date 2026-10-01 [--from-step bronze] [--to-step gold]</span>
+<span class="st">    python -m stylehub.orchestration.run_daily --date 2026-10-01 [--from-step bronze] [--to-step gold]</span>
 <span class="st">&quot;&quot;&quot;</span>
 
 <span class="kw">import</span> argparse
@@ -421,7 +421,7 @@ body.mode-explain .segment-content { grid-template-columns: 1fr; }
 <span class="kw">from</span> orchestration.alerts <span class="kw">import</span> send_alert
 <span class="kw">from</span> orchestration.runs <span class="kw">import</span> record_run, run_row
 <span class="kw">from</span> storage.events_bronze <span class="kw">import</span> ensure_events_bronze
-<span class="kw">from</span> storage.load_bronze <span class="kw">import</span> TABLES, load_day
+<span class="kw">from</span> stylehub.storage.load_bronze <span class="kw">import</span> TABLES, load_day
 <span class="kw">from</span> transform.run_dbt <span class="kw">import</span> run_dbt</code></pre></div>
         </div>
       </div>
@@ -734,7 +734,7 @@ STEPS = [
 </section>
 </div>
 <div class="tab-panel" data-tab="b">
-<div class="intro"><h2>csv_tables (ingest)</h2><p>This file is the first step of the data flow. It reads the course tables from BigQuery and writes them to the Raw Zone on Google Cloud Storage. It does no cleaning, because ingestion has one job: to copy data as it is. Source: <code>src/python/ingestion/csv_tables.py</code></p></div>
+<div class="intro"><h2>csv_tables (ingest)</h2><p>This file is the first step of the data flow. It reads the course tables from BigQuery and writes them to the Raw Zone on Google Cloud Storage. It does no cleaning, because ingestion has one job: to copy data as it is. Source: <code>src/python/stylehub/ingestion/csv_tables.py</code></p></div>
 <section class="segment" id="seg-b-1-imports" data-type="imports" data-lines="1-22">
   <div class="segment-header">
     <button class="expand-toggle">&#9660;</button>
@@ -778,7 +778,7 @@ STEPS = [
 <span class="st">Re-running adds a new file (append-only). Bronze loads only the latest file of each day,</span>
 <span class="st">and Silver keeps the latest row of each id.</span>
 
-<span class="st">Usage: python -m ingestion.csv_tables --table orders --date 2026-10-01 [--dry-run]</span>
+<span class="st">Usage: python -m stylehub.ingestion.csv_tables --table orders --date 2026-10-01 [--dry-run]</span>
 <span class="st">&quot;&quot;&quot;</span>
 
 <span class="kw">import</span> argparse
@@ -967,7 +967,7 @@ DROP_COLUMNS = {<span class="st">&quot;users&quot;</span>: [<span class="st">&qu
 </section>
 </div>
 <div class="tab-panel" data-tab="c">
-<div class="intro"><h2>load_bronze (Raw to Bronze)</h2><p>This file moves the Raw files of one day into the Bronze tables in BigQuery. Its main promise is that you can run it again without doubling the rows. Source: <code>src/python/storage/load_bronze.py</code></p></div>
+<div class="intro"><h2>load_bronze (Raw to Bronze)</h2><p>This file moves the Raw files of one day into the Bronze tables in BigQuery. Its main promise is that you can run it again without doubling the rows. Source: <code>src/python/stylehub/storage/load_bronze.py</code></p></div>
 <section class="segment" id="seg-c-1-imports" data-type="imports" data-lines="1-20">
   <div class="segment-header">
     <button class="expand-toggle">&#9660;</button>
@@ -1009,7 +1009,7 @@ DROP_COLUMNS = {<span class="st">&quot;users&quot;</span>: [<span class="st">&qu
 <span class="st">rows are still there, so Bronze never loses a day. If the delete fails, the day has two batches</span>
 <span class="st">for a while. That is harmless (Silver keeps the newest row) and the next run removes the old one.</span>
 
-<span class="st">Usage: python -m storage.load_bronze --date 2026-10-01 [--table orders]</span>
+<span class="st">Usage: python -m stylehub.storage.load_bronze --date 2026-10-01 [--table orders]</span>
 <span class="st">&quot;&quot;&quot;</span>
 
 <span class="kw">import</span> argparse
@@ -1328,7 +1328,7 @@ DROP_COLUMNS = {<span class="st">&quot;users&quot;</span>: [<span class="st">&qu
 </section>
 </div>
 <div class="tab-panel" data-tab="d">
-<div class="intro"><h2>events_bronze (one-time events build)</h2><p>The events table has about 108 million rows and never changes. This file builds its partitioned Bronze copy once, and then skips the work on every later run. Source: <code>src/python/storage/events_bronze.py</code></p></div>
+<div class="intro"><h2>events_bronze (one-time events build)</h2><p>The events table has about 108 million rows and never changes. This file builds its partitioned Bronze copy once, and then skips the work on every later run. Source: <code>src/python/stylehub/storage/events_bronze.py</code></p></div>
 <section class="segment" id="seg-d-1-imports" data-type="imports" data-lines="1-23">
   <div class="segment-header">
     <button class="expand-toggle">&#9660;</button>
@@ -1371,10 +1371,10 @@ DROP_COLUMNS = {<span class="st">&quot;users&quot;</span>: [<span class="st">&qu
 
 <span class="st">If `events_partitioned` already exists, this does nothing. To rebuild it on purpose, delete the</span>
 <span class="st">table in BigQuery first, or run the two commands by hand:</span>
-<span class="st">    python -m storage.copy_events</span>
-<span class="st">    python -m transform.run_sql bronze</span>
+<span class="st">    python -m stylehub.storage.copy_events</span>
+<span class="st">    python -m stylehub.storage.run_sql bronze</span>
 
-<span class="st">Usage: python -m storage.events_bronze</span>
+<span class="st">Usage: python -m stylehub.storage.events_bronze</span>
 <span class="st">&quot;&quot;&quot;</span>
 
 <span class="kw">import</span> logging
@@ -1385,7 +1385,7 @@ DROP_COLUMNS = {<span class="st">&quot;users&quot;</span>: [<span class="st">&qu
 <span class="kw">from</span> common.config <span class="kw">import</span> settings
 <span class="kw">from</span> common.retry <span class="kw">import</span> call_with_retry
 <span class="kw">from</span> storage.copy_events <span class="kw">import</span> copy_events
-<span class="kw">from</span> transform.run_sql <span class="kw">import</span> run_layer</code></pre></div>
+<span class="kw">from</span> stylehub.storage.run_sql <span class="kw">import</span> run_layer</code></pre></div>
         </div>
       </div>
       <div class="explanation">
@@ -1533,7 +1533,7 @@ TABLE = <span class="st">&quot;events_partitioned&quot;</span></code></pre></div
 </section>
 </div>
 <div class="tab-panel" data-tab="e">
-<div class="intro"><h2>run_dbt (Silver and Gold)</h2><p>Silver and Gold are dbt models, not Python code. This file is the thin bridge that starts dbt for one layer with the right settings. Source: <code>src/python/transform/run_dbt.py</code></p></div>
+<div class="intro"><h2>run_dbt (Silver and Gold)</h2><p>Silver and Gold are dbt models, not Python code. This file is the thin bridge that starts dbt for one layer with the right settings. Source: <code>src/python/stylehub/transform/run_dbt.py</code></p></div>
 <section class="segment" id="seg-e-1-imports" data-type="imports" data-lines="1-18">
   <div class="segment-header">
     <button class="expand-toggle">&#9660;</button>
@@ -1568,10 +1568,10 @@ TABLE = <span class="st">&quot;events_partitioned&quot;</span></code></pre></div
 <span class="st">dbt builds the models and runs their tests in one command. A failed test fails the step.</span>
 
 <span class="st">Usage:</span>
-<span class="st">    python -m transform.run_dbt silver</span>
-<span class="st">    python -m transform.run_dbt gold</span>
-<span class="st">    python -m transform.run_dbt all</span>
-<span class="st">    python -m transform.run_dbt silver --command parse       # only check the project, no BigQuery</span>
+<span class="st">    python -m stylehub.transform.run_dbt silver</span>
+<span class="st">    python -m stylehub.transform.run_dbt gold</span>
+<span class="st">    python -m stylehub.transform.run_dbt all</span>
+<span class="st">    python -m stylehub.transform.run_dbt silver --command parse       # only check the project, no BigQuery</span>
 <span class="st">&quot;&quot;&quot;</span>
 
 <span class="kw">import</span> argparse
@@ -1846,7 +1846,7 @@ COMMANDS = [<span class="st">&quot;build&quot;</span>, <span class="st">&quot;pa
 <span class="st">- silver and gold start dbt. They run with BashOperator, which starts the same command you can</span>
 <span class="st">  run by hand (run_daily calls dbt, saves the run in pipeline_runs and sends the alert):</span>
 
-<span class="st">    python -m orchestration.run_daily --date 2026-10-01 --from-step silver --to-step silver</span>
+<span class="st">    python -m stylehub.orchestration.run_daily --date 2026-10-01 --from-step silver --to-step silver</span>
 
 <span class="st">Settings (environment variables of the Airflow machine):</span>
 <span class="st">    STYLEHUB_HOME     project folder, where pyproject.toml lives (default /opt/stylehub)</span>
@@ -1948,7 +1948,7 @@ DBT_STEPS = [<span class="st">&quot;silver&quot;</span>, <span class="st">&quot;
       </div>
       <div class="explanation">
         <h3>run_python_step: the function Airflow copies</h3>
-        <p>Airflow does not import this function in the other Python. It copies its source text to that environment and runs it there, so it must be self-contained. That is why <code>import sys</code> sits inside the function. This is how an <span class="term" data-term="external-python">ExternalPythonOperator</span> works. The first line adds <code>src/python</code> to <span class="term" data-term="sys-path">sys.path</span>, so <code>from orchestration import run_daily</code> works. Then it calls <code>setup_logging()</code>. Without that call the INFO lines of the step would be lost, because the other process has no logging set up. The last line runs exactly one step through <code>run_steps</code>, so the record in <code>pipeline_runs</code> and the alert still happen. The function has no type hints and no outside names on purpose: anything defined outside it would be missing in the other Python.</p>
+        <p>Airflow does not import this function in the other Python. It copies its source text to that environment and runs it there, so it must be self-contained. That is why <code>import sys</code> sits inside the function. This is how an <span class="term" data-term="external-python">ExternalPythonOperator</span> works. The first line adds <code>src/python</code> to <span class="term" data-term="sys-path">sys.path</span>, so <code>from stylehub.orchestration import run_daily</code> works. Then it calls <code>setup_logging()</code>. Without that call the INFO lines of the step would be lost, because the other process has no logging set up. The last line runs exactly one step through <code>run_steps</code>, so the record in <code>pipeline_runs</code> and the alert still happen. The function has no type hints and no outside names on purpose: anything defined outside it would be missing in the other Python.</p>
       </div>
     </div>
   </div>
@@ -1974,10 +1974,10 @@ DBT_STEPS = [<span class="st">&quot;silver&quot;</span>, <span class="st">&quot;
 64</pre></div>
           <div class="code-content"><pre><code><span class="kw">def</span> <span class="fn">dbt_command</span>(step: <span class="bl">str</span>) -&gt; <span class="bl">str</span>:
     <span class="st">&quot;&quot;&quot;The shell command of one dbt task. {{ ds }} is the day Airflow is processing.&quot;&quot;&quot;</span>
-    <span class="cm"># PYTHONPATH lets &quot;python -m orchestration.run_daily&quot; find the code in src/python.</span>
+    <span class="cm"># PYTHONPATH lets &quot;python -m stylehub.orchestration.run_daily&quot; find the code in src/python.</span>
     <span class="kw">return</span> (
         <span class="st">f&quot;cd </span>{PROJECT_HOME}<span class="st"> &amp;&amp; PYTHONPATH=</span>{PROJECT_HOME}<span class="st">/src/python &quot;</span>
-        <span class="st">f&quot;</span>{RUN_PREFIX}<span class="st"> python -m orchestration.run_daily &quot;</span>
+        <span class="st">f&quot;</span>{RUN_PREFIX}<span class="st"> python -m stylehub.orchestration.run_daily &quot;</span>
         <span class="st">f&quot;--date {</span>{<span class="st">{</span>{<span class="st"> ds }</span>}<span class="st">}</span>}<span class="st"> --from-step </span>{step}<span class="st"> --to-step </span>{step}<span class="st">&quot;</span>
     )</code></pre></div>
         </div>

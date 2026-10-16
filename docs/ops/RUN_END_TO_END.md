@@ -4,21 +4,21 @@ This page walks you through one full run, from a fresh clone to checked Gold tab
 
 > [!IMPORTANT]
 > - Never commit `secrets/`, `.env`, key files, passwords or the raw CSV files.
-> - The Postgres and API code paths have not run on real sources. This page uses the course CSV files.
+> - This page uses the course CSV files. There is no live source.
 > - Stop Airflow and any VM when you are done. They cost battery or money.
 
 ## The path in one picture
 
 ```
 data/raw_data/*.csv
-   -> storage.setup.load_csv        -> BigQuery dataset `stylehub` (the course tables)
-   -> ingestion.csv_tables    -> Raw Zone on GCS (Parquet + _ingested_at, _source, _batch_id)
-   -> storage.load_bronze     -> Bronze (latest batch of the day)         + events_partitioned (built once)
+   -> setup.load_csv                -> BigQuery dataset `stylehub` (the course tables)
+   -> stylehub.ingestion.csv_tables    -> Raw Zone on GCS (Parquet + _ingested_at, _source, _batch_id)
+   -> stylehub.bronze.load_bronze     -> Bronze (latest batch of the day)         + events_partitioned (built once)
    -> dbt silver              -> Silver (tests run)
    -> dbt gold                -> Gold (tests run)
 ```
 
-`orchestration.run_daily` runs the last four arrows for one date. Airflow runs the same four steps.
+`stylehub.orchestration.run_daily` runs the last four arrows for one date. Airflow runs the same four steps.
 
 ## Step 1. Get the code and install packages
 
@@ -37,7 +37,7 @@ mkdir secrets
 copy .env.example secrets\.env
 ```
 
-Set at least `GCP_PROJECT_ID`, `GCS_BUCKET`, `GCP_LOCATION` and `GOOGLE_APPLICATION_CREDENTIALS` (the key file in `secrets\`). The `PG_*` and API values are only for the optional Postgres and API paths.
+Set at least `GCP_PROJECT_ID`, `GCS_BUCKET`, `GCP_LOCATION` and `GOOGLE_APPLICATION_CREDENTIALS` (the key file in `secrets\`).
 
 ## Step 3. Run the tests
 
@@ -51,19 +51,19 @@ You should see ruff pass and all tests pass (a few are skipped or deselected on 
 ## Step 4. Create the bucket and the datasets
 
 ```powershell
-uv run python -m storage.setup.setup_gcp --dry-run
-uv run python -m storage.setup.setup_gcp
+uv run python -m stylehub.setup.setup_gcp --dry-run
+uv run python -m stylehub.setup.setup_gcp
 ```
 
-This creates the bucket and the datasets `stylehub_bronze`, `stylehub_silver`, `stylehub_gold` and `stylehub_ops`.
+This creates the bucket, the datasets `stylehub_bronze`, `stylehub_staging`, `stylehub_silver`, `stylehub_gold` and `stylehub_ops`, and the `pipeline_runs` table.
 
 ## Step 5. Load the course CSV files
 
 Put the five CSV files in `data/raw_data/`.
 
 ```powershell
-uv run python -m storage.setup.load_csv --file data/raw_data/orders.csv
-uv run python -m storage.setup.load_csv
+uv run python -m stylehub.setup.load_csv --file data/raw_data/orders.csv
+uv run python -m stylehub.setup.load_csv
 ```
 
 `events.csv` is about 16 GB, so uploading it takes a long time. The four small files are quick. After this, the dataset `stylehub` holds `orders`, `order_items`, `products`, `users` and `events`.
@@ -74,22 +74,22 @@ uv run python -m storage.setup.load_csv
 ## Step 6. Run the whole pipeline
 
 ```powershell
-uv run python -m orchestration.run_daily --date 2026-10-01
+uv run python -m stylehub.orchestration.run_daily --date 2026-10-01
 ```
 
 | Step | What happens | What you should see |
 |---|---|---|
 | `ingest` | Reads the four small tables, checks columns, writes Parquet to the Raw Zone | One line per table with the row count, for example `orders ...: 125031 rows` |
-| `bronze` | Builds `events_partitioned` if it is missing, then loads the latest Raw batch of the day | `orders: 125031 rows`, and so on |
+| `bronze` | Checks that `events_partitioned` exists, then loads the latest Raw batch of the day and checks the row count against the Raw file | `orders: 125031 rows`, and so on |
 | `silver` | dbt builds 13 models (5 staging views, 2 intermediate views, 6 core tables) and runs their tests | `Done. PASS=... ERROR=0` |
 | `gold` | dbt builds the 6 reporting tables and runs their tests | `Done. PASS=... ERROR=0` |
 
-The first run takes longer because it copies and partitions `events`. Later runs skip that. `fact_events` is incremental: only the newest 3 days are rebuilt. The first silver run scans about 13 GB. To rebuild all of it, run `dbt build --full-refresh --select fact_events` inside `dbt/`.
+Before the first run, build `events` once: `uv run python -m stylehub.bronze.events_bronze` (it takes a few minutes). `fact_events` is incremental: only the newest 3 days are rebuilt. The first silver run scans about 13 GB. To rebuild all of it, run `dbt build --full-refresh --select fact_events` inside `dbt/`.
 
 To run only some steps:
 
 ```powershell
-uv run python -m orchestration.run_daily --date 2026-10-01 --from-step silver --to-step gold
+uv run python -m stylehub.orchestration.run_daily --date 2026-10-01 --from-step silver --to-step gold
 ```
 
 ## Step 7. Look at the results
@@ -115,7 +115,7 @@ docker compose --env-file secrets/.env --profile airflow up -d --build
 docker compose --env-file secrets/.env --profile airflow exec airflow-scheduler airflow dags test stylehub_daily 2026-10-15
 ```
 
-All four tasks should end as `success`. Open http://localhost:8080 (or your `AIRFLOW_WEB_PORT`) to see the DAG.
+All four tasks should end as `success`. Open http://localhost:8080 (or your `AIRFLOW_WEB_PORT`) to see the DAG. Log in with `AIRFLOW_ADMIN_USER` and `AIRFLOW_ADMIN_PASSWORD` from `secrets\.env`. Airflow 3 starts four containers besides the database: the one-time setup, the API server (web page), the DAG processor and the scheduler.
 
 ## Step 9. Prove the pipeline is safe to repeat
 
@@ -127,13 +127,13 @@ These features were written and unit-tested with fakes. None has run on a real p
 
 | # | What to prove | How | Expected |
 |---|---|---|---|
-| 1 | Bronze is not doubled | Run `uv run python -m orchestration.run_daily --date 2026-10-16 --from-step ingest --to-step bronze` **twice**. Then in the BigQuery console: `SELECT COUNT(*) AS n, COUNT(DISTINCT _batch_id) AS batches FROM stylehub_bronze.orders` | `batches` grows by one per **day**, not per run. `n` after the second run equals `n` after the first |
+| 1 | Bronze is not doubled | Run `uv run python -m stylehub.orchestration.run_daily --date 2026-10-16 --from-step ingest --to-step bronze` **twice**. Then in the BigQuery console: `SELECT COUNT(*) AS n, COUNT(DISTINCT _batch_id) AS batches FROM stylehub_bronze.orders` | `batches` grows by one per **day**, not per run. `n` after the second run equals `n` after the first |
 | 2 | `fact_events` is incremental | Run `--from-step silver --to-step silver` twice. In the console, open Job history (or query `region-asia-southeast1.INFORMATION_SCHEMA.JOBS_BY_PROJECT`) and compare the bytes of the `fact_events` job | The first run (the table was a plain table before) may scan 13 GB. The second run scans a few hundred MB at most. `SELECT COUNT(*) FROM stylehub_silver.fact_events` stays 107.9 million |
 | 3 | Late events are kept | Not testable with the static dataset. Read the comment at the top of `dbt/models/marts/core/fact_events.sql` | The window is `events_lookback_days` (3) |
 | 4 | `pipeline_runs` has rows | `SELECT run_id, step, status, rows_loaded, duration_seconds, error FROM stylehub_ops.pipeline_runs ORDER BY started_at DESC LIMIT 20` | One row per step, `status` = `success`, `rows_loaded` filled only for `bronze` |
-| 5 | A row is not lost when BigQuery fails | `$env:BQ_OPS = "no_such_dataset"` then `uv run python -c "from orchestration.runs import record_run, run_row; from datetime import UTC, datetime; n = datetime.now(UTC); print(record_run(run_row('t1','test','2026-10-16','success',n,n)))"` | Prints `False`, and the file `logs\pipeline_runs_pending.jsonl` appears. Then `Remove-Item Env:BQ_OPS` and run the same command again: it prints `True` and the file is gone. Two rows (`t1` twice) are now in `pipeline_runs`: delete them by hand |
-| 6 | "Did not run" check | `uv run python -m orchestration.check_freshness --max-age-hours 1000` then `uv run python -m orchestration.check_freshness --max-age-hours 0.001; $LASTEXITCODE` | First: `OK: the last good run ended ...`. Second: the alert text, exit code `1` (a Discord message only if `ALERT_WEBHOOK_URL` is set) |
-| 7 | One compose file | `docker compose --profile dev --profile pipeline --profile airflow config --quiet` then `docker compose up -d postgres` then `docker compose --profile dev down` | No error. Postgres starts without an `secrets/.env` file |
+| 5 | A row is not lost when BigQuery fails | `$env:BQ_OPS = "no_such_dataset"` then `uv run python -c "from stylehub.orchestration.runs import record_run, run_row; from datetime import UTC, datetime; n = datetime.now(UTC); print(record_run(run_row('t1','test','2026-10-16','success',n,n)))"` | Prints `False`, and the file `logs\pipeline_runs_pending.jsonl` appears. Then `Remove-Item Env:BQ_OPS` and run the same command again: it prints `True` and the file is gone. Two rows (`t1` twice) are now in `pipeline_runs`: delete them by hand |
+| 6 | "Did not run" check | `uv run python -m stylehub.orchestration.check_freshness --max-age-hours 1000` then `uv run python -m stylehub.orchestration.check_freshness --max-age-hours 0.001; $LASTEXITCODE` | First: `OK: the last good run ended ...`. Second: the alert text, exit code `1` (a Discord message only if `ALERT_WEBHOOK_URL` is set) |
+| 7 | One compose file | `docker compose --profile pipeline --profile airflow config --quiet` | No error |
 | 8 | Retry | `uv run pytest src/tests/common/test_retry.py -q` | All pass. A real network error is hard to force, so this is checked with fakes only |
 
 If one of these fails, send me the exact message and I will fix it.
@@ -144,14 +144,14 @@ If one of these fails, send me the exact message and I will fix it.
 docker compose --env-file secrets/.env --profile airflow down
 ```
 
-- `stylehub_bronze.events_raw` is a 15 GB copy. You can delete it after `events_partitioned` exists. If you delete it and later rebuild `events_partitioned`, the copy runs again.
+- `stylehub_bronze.events_raw` is a 15 GB copy. `events_bronze` deletes it after `events_partitioned` is built. If you rebuild `events_partitioned`, the copy runs again.
 - Run `git status` before every commit. Check that `secrets/` and the CSV files are not listed.
 
 ## Known gaps
 
 | Gap | Effect |
 |---|---|
-| The Postgres and API code has not run on real sources. | `run_daily` does not call it. |
+| The Bronze row check, the latest-snapshot macro, the cost limit and the dev/prod dbt targets have been tested with fakes and `dbt parse` only. | Run Step 7 and the checks below on your project once and send me what breaks. |
 | Gold numbers were not checked by hand against the CSV files. | The tests only prove the layers agree with each other. |
 | Service accounts per job are designed but not created. | One key does everything. The roles are in [DEPLOY_VM.md](DEPLOY_VM.md). |
 | The VM and CD files have not run on real GCP. | Expect small fixes. |
@@ -162,7 +162,7 @@ docker compose --env-file secrets/.env --profile airflow down
 |---|---|
 | `KeyError` for a setting | `secrets\.env` and [CONFIGURATION.md](CONFIGURATION.md) |
 | `DefaultCredentialsError` in a `python -c` command | Set `$env:GOOGLE_APPLICATION_CREDENTIALS` in that window |
-| `Dataset ... was not found in location ...` | Region mismatch. Run `uv run python -m storage.events_bronze` |
+| `Dataset ... was not found in location ...` | Region mismatch. Run `uv run python -m stylehub.bronze.events_bronze` |
 | `Cannot add fields` when loading Bronze | An old Bronze table has other columns. Delete it if it holds nothing you need |
 | `SchemaError` in ingest | The source columns changed. Read the message and fix `EXPECTED_SCHEMAS` |
 | A step failed | The log line `step <name> FAILED`, then the `error` column in `pipeline_runs` |
