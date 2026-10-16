@@ -1833,11 +1833,13 @@ dev = [
     { name = "types-requests" },
 ]
 serving = [
+    { name = "db-dtypes" },
     { name = "streamlit" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "db-dtypes", marker = "extra == 'serving'", specifier = ">=1.2" },
     { name = "dbt-bigquery", marker = "extra == 'dbt'", specifier = ">=1.10" },
     { name = "google-cloud-bigquery", specifier = ">=3.25" },
     { name = "google-cloud-bigquery-storage", specifier = ">=2.25" },

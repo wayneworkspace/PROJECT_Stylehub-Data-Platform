@@ -25,7 +25,7 @@ dev = [
 # Silver and Gold with dbt. Airflow is NOT here: install it on its own (see deploy/airflow/README.md).
 dbt = ["dbt-bigquery>=1.10"]
 # The monitoring dashboard (src/stylehub/serving).
-serving = ["streamlit>=1.40"]
+serving = ["streamlit>=1.40", "db-dtypes>=1.2"]
 
 [build-system]
 requires = ["hatchling"]
