@@ -1,9 +1,9 @@
--- Question: revenue and profit by category per month (session 5, exercise 1).
+-- Question: revenue and profit by category per month.
 -- Rules at Gold: exclude the statuses of revenue_order_filter (Cancelled),
 -- profit_at_current_cost = sale_price - the product's cost TODAY (not the cost on the sale day),
 -- month = the order's month.
 -- An item whose product is unknown still counts in revenue (category 'Unknown'), so the revenue
--- here adds up to daily_revenue (the test monthly_matches_daily_revenue checks it).
+-- here adds up to daily_revenue.
 -- An item without a cost adds 0 to profit_at_current_cost and is counted in n_items_without_cost.
 
 WITH valid_orders AS (

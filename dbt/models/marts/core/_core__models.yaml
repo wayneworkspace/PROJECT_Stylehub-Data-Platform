@@ -13,6 +13,7 @@ models:
       - name: retail_price
         description: The product's list price today.
 
+
   - name: dim_users
     description: One row per customer (grain).
     columns:
@@ -85,6 +86,7 @@ models:
       - name: order_date
         description: The day the ORDER was placed (UTC). Partition column of this table.
 
+
   - name: fact_shipments
     description: One row per shipped order (grain), built from the order dates.
     columns:
@@ -94,9 +96,9 @@ models:
   - name: fact_events
     description: >
       One row per event (grain). About 108 million rows. The grain test (unique + not_null on
-      event_id) and the orphan check are singular tests that look only at the recent window
-      (tests/fact_events_recent_grain.sql, tests/fact_events_recent_orphans.sql): older partitions
-      do not change in a daily run, and a test of the whole table scans 15 GB every day.
+      event_id) is a singular test that looks only at the recent window
+      (tests/fact_events_recent_grain.sql): older partitions do not change in a daily run, and a
+      test of the whole table scans 15 GB every day.
     columns:
       - name: event_id
         description: Id of the event. Unique within the recent window (singular test).

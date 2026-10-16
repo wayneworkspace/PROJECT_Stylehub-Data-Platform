@@ -4,7 +4,11 @@ A wrong date would otherwise travel into GCS paths and BigQuery before anything 
 """
 
 import argparse
-from datetime import date
+from datetime import date, timedelta
+
+# Session 2: an incremental load re-reads this many days before the data date, so rows that
+# were written late are not missed. The duplicates are removed in Silver.
+LOOKBACK_DAYS = 1
 
 
 def valid_date(value: str) -> str:
@@ -24,3 +28,15 @@ def date_arg(value: str) -> str:
         return valid_date(value)
     except ValueError as exc:
         raise argparse.ArgumentTypeError(str(exc)) from None
+
+
+def backfill_dates(end: str, days: int) -> list[str]:
+    """The `days` dates that end at `end`, oldest first. Backfill = run each of them again."""
+    last = date.fromisoformat(valid_date(end))
+    return [(last - timedelta(days=n)).isoformat() for n in range(days - 1, -1, -1)]
+
+
+def watermark_window(data_date: str, lookback_days: int = LOOKBACK_DAYS) -> tuple[str, str]:
+    """The first and the last day (both included) that an incremental load reads."""
+    last = date.fromisoformat(valid_date(data_date))
+    return (last - timedelta(days=lookback_days)).isoformat(), last.isoformat()

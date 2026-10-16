@@ -1,18 +1,11 @@
-# Everything that runs in Docker, in ONE file. Nothing starts unless you pick a profile
-# (or name the service). Run these from the project folder (PowerShell):
-#
-#   pipeline  the pipeline image, run once (needs secrets/.env and your key in secrets/)
-#             docker compose run --rm pipeline python -m stylehub.orchestration.run_daily --date 2026-10-01
-#   airflow   Airflow 3: its own database, a one-time setup, the API server (web page), the
-#             DAG processor (reads the DAG files) and the scheduler
-#             Fill in the AIRFLOW_ values in secrets/.env (the names are in .env.example)
-#             docker compose --env-file secrets/.env --profile airflow up -d --build
+# Everything that runs in Docker, in ONE file. Nothing starts unless you pick a profile.
+# Run from the project folder (PowerShell):
+#   pipeline  docker compose run --rm pipeline python -m stylehub.orchestration.run_daily --date 2026-10-01
+#   airflow   docker compose --env-file secrets/.env --profile airflow up -d --build
 #             docker compose --env-file secrets/.env --profile airflow down
-#
-# The Airflow image CONTAINS the project code (it is not mounted from your folder), the same as the
-# image that CD publishes. After you change code, rebuild: add --build to the `up` command.
-# The Airflow passwords come from secrets/.env and are for a throwaway local container only.
-# Never reuse them anywhere else.
+#   serving   docker compose --env-file secrets/.env --profile serving up -d --build   (http://localhost:8501)
+# The images CONTAIN the project code: after a code change, rebuild (--build).
+# The AIRFLOW_ values in secrets/.env are for a throwaway local container. Never reuse them.
 
 x-airflow-common: &airflow-common
   profiles: ["airflow"]
@@ -41,16 +34,13 @@ x-airflow-common: &airflow-common
     STYLEHUB_HOME: /opt/stylehub
     STYLEHUB_RUN: uv run --no-sync
     # The DAG sends the failure alert itself (alert_on_failure). Empty = no alert.
-    ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
   volumes:
     # No project folder and no DAG folder here: code and DAG are inside the image
     # (deploy/airflow/Dockerfile), so what runs on your laptop is what runs on the VM.
-    # Only the secrets and two volumes are mounted. On a VM with an attached service account,
+    # Only the secrets and the Airflow logs are mounted. On a VM with an attached service account,
     # remove the secrets line: the key file is only for a laptop.
     - ./secrets:/opt/stylehub/secrets:ro
     - airflow-logs:/opt/airflow/logs
-    # pipeline_runs rows that could not be saved wait here (see orchestration/runs.py).
-    - stylehub-logs:/opt/stylehub/logs
   depends_on:
     airflow-db:
       condition: service_healthy
@@ -62,6 +52,23 @@ services:
     build:
       context: .
       dockerfile: deploy/pipeline/Dockerfile
+    env_file:
+      - path: secrets/.env
+        required: false
+    volumes:
+      - ./secrets:/app/secrets:ro
+
+  # ---- profile serving: the monitoring dashboard (Streamlit) -----------------------------------
+  dashboard:
+    profiles: ["serving"]
+    build:
+      context: .
+      dockerfile: deploy/pipeline/Dockerfile
+      args:
+        EXTRAS: --extra serving
+    command: streamlit run src/stylehub/serving/dashboard.py --server.address 0.0.0.0
+    ports:
+      - "8501:8501"
     env_file:
       - path: secrets/.env
         required: false
@@ -156,4 +163,3 @@ services:
 volumes:
   airflow-db-data:
   airflow-logs:
-  stylehub-logs:

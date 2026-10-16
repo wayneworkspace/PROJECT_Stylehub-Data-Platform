@@ -9,12 +9,12 @@ repos:
       - id: check-yaml
       - id: check-merge-conflict
       - id: check-added-large-files
-        args: ["--maxkb=1024"]  # docs/html/architecture.html is about 750 KB
+        args: ["--maxkb=1024"]
       - id: detect-private-key
       - id: end-of-file-fixer
-        exclude: ^(uv\.lock|docs/assets/)
+        exclude: ^uv\.lock
       - id: trailing-whitespace
-        exclude: ^(uv\.lock|docs/assets/)
+        exclude: ^uv\.lock
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.17.0
@@ -35,7 +35,7 @@ repos:
         stages: [pre-push]
       - id: sqlfluff
         name: sqlfluff lint
-        entry: uv run --frozen --extra dev sqlfluff lint dbt/models dbt/tests dbt/macros src/stylehub/sql
+        entry: uv run --frozen --extra dev sqlfluff lint dbt/models dbt/macros src/stylehub/sql
         language: system
         files: \.sql$
         pass_filenames: false

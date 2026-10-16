@@ -1,8 +1,7 @@
 -- Grain: one row per order item. Adds the product's CURRENT cost and the order's date.
 -- One row is one unit sold, so there is no quantity column.
--- Cost is the cost TODAY, not the cost on the day of the sale (see docs/design/DECISIONS.md).
--- cost is NULL when the product is not in dim_products; the warn test items_without_cost lists
--- them.
+-- Cost is the cost TODAY, not the cost on the day of the sale.
+-- cost is NULL when the product is not in dim_products (Gold counts them in n_items_without_cost).
 -- order_date comes from the ORDER: the item's own created_at can be later than its shipped_at,
 -- so reports and partitions use the order's date.
 

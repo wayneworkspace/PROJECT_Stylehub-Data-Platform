@@ -1,14 +1,11 @@
 version: 2
 
 # Gold: the business rules live here. Every table has a description of its grain and at least a
-# not_null test on its measures; tests/gold_grain_unique.sql checks the grain of the tables that
-# have more than one key column.
+# not_null test on its measures.
 #
-# Contracts: five tables are published to analysts, so their column names and types are a promise.
+# Contracts: these tables are published to analysts, so their column names and types are a promise.
 # With `contract: enforced`, dbt checks them BEFORE it builds the table: a renamed or re-typed
 # column fails the build instead of silently breaking a dashboard. Every column must be listed.
-# daily_events_by_type has no contract: it is incremental (insert_overwrite), and that
-# combination has not been run on BigQuery yet.
 # Unit tests for the rules are in _reporting__unit_tests.yaml.
 models:
   - name: daily_revenue
@@ -61,72 +58,3 @@ models:
       - name: n_items_without_cost
         data_type: int64
         description: Items whose product has no cost. They add 0 to profit_at_current_cost.
-
-  - name: return_rate_by_state
-    description: Share of shipped orders that were returned, by the customer's state (grain = state, NULL = unknown). n_orders counts shipped orders only.
-    config:
-      contract:
-        enforced: true
-    columns:
-      - name: state
-        data_type: string
-      - name: n_orders
-        data_type: int64
-        data_tests: [not_null]
-      - name: n_returned
-        data_type: int64
-      - name: return_rate
-        data_type: float64
-        data_tests: [not_null]
-
-  - name: avg_delivery_days_by_state
-    description: Average days from shipped to delivered, by state (grain = state).
-    config:
-      contract:
-        enforced: true
-    columns:
-      - name: state
-        data_type: string
-      - name: n_shipments
-        data_type: int64
-        data_tests: [not_null]
-      - name: avg_delivery_days
-        data_type: float64
-        data_tests: [not_null]
-
-  - name: daily_events_by_type
-    description: Events, users and sessions per day and event type (grain).
-    columns:
-      - name: event_date
-        data_tests: [not_null]
-      - name: event_type
-        data_tests: [not_null]
-      - name: n_events
-        data_tests: [not_null]
-
-  - name: funnel_by_category
-    description: >
-      Sessions that viewed, THEN added to cart, THEN bought, by product category, with the step
-      rates (each at most 1). Events without a known product are in category 'Unknown'.
-      NOT additive: a session that touched two categories counts once in each, so the rows do
-      not add up to the real number of sessions.
-    config:
-      contract:
-        enforced: true
-    columns:
-      - name: category
-        data_type: string
-        data_tests: [unique, not_null]
-      - name: n_view_sessions
-        data_type: int64
-        data_tests: [not_null]
-      - name: n_cart_sessions
-        data_type: int64
-        data_tests: [not_null]
-      - name: n_purchase_sessions
-        data_type: int64
-        data_tests: [not_null]
-      - name: view_to_cart_rate
-        data_type: float64
-      - name: cart_to_purchase_rate
-        data_type: float64

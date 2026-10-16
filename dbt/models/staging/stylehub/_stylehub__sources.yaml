@@ -6,7 +6,7 @@ sources:
   - name: stylehub
     description: The StyleHub shop tables as loaded into Bronze (one full snapshot per day).
     # `dbt source freshness` compares the newest _ingested_at with now. The pipeline does not run
-    # it by itself (check_freshness covers the pipeline). Run it by hand or add it to a job.
+    # it by itself (the dashboard shows freshness). Run it by hand or add it to a job.
     config:
       loaded_at_field: _ingested_at
       freshness:
@@ -14,11 +14,54 @@ sources:
         error_after: {count: 4, period: day}
     database: "{{ env_var('GCP_PROJECT_ID') }}"
     schema: "{{ env_var('BQ_BRONZE', 'stylehub_bronze') }}"
+    # columns + data_type (int, number, text, datetime) are the ONE list of columns the pipeline
+    # expects. ingestion/schema_check.py reads it and stops when the source table no longer matches.
     tables:
       - name: orders
+        columns:
+          - {name: order_id, data_type: int}
+          - {name: user_id, data_type: int}
+          - {name: status, data_type: text}
+          - {name: created_at, data_type: datetime}
+          - {name: shipped_at, data_type: datetime}
+          - {name: delivered_at, data_type: datetime}
+          - {name: returned_at, data_type: datetime}
+          - {name: num_of_item, data_type: int}
       - name: order_items
+        columns:
+          - {name: id, data_type: int}
+          - {name: order_id, data_type: int}
+          - {name: user_id, data_type: int}
+          - {name: product_id, data_type: int}
+          - {name: status, data_type: text}
+          - {name: created_at, data_type: datetime}
+          - {name: shipped_at, data_type: datetime}
+          - {name: delivered_at, data_type: datetime}
+          - {name: returned_at, data_type: datetime}
+          - {name: sale_price, data_type: number}
       - name: products
+        columns:
+          - {name: id, data_type: int}
+          - {name: name, data_type: text}
+          - {name: category, data_type: text}
+          - {name: brand, data_type: text}
+          - {name: department, data_type: text}
+          - {name: sku, data_type: text}
+          - {name: cost, data_type: number}
+          - {name: retail_price, data_type: number}
       - name: users
+        columns:
+          - {name: id, data_type: int}
+          - {name: email, data_type: text}
+          - {name: age, data_type: int}
+          - {name: gender, data_type: text}
+          - {name: state, data_type: text}
+          - {name: city, data_type: text}
+          - {name: country, data_type: text}
+          - {name: latitude, data_type: number}
+          - {name: longitude, data_type: number}
+          - {name: traffic_source, data_type: text}
+          - {name: created_at, data_type: datetime}
       # Built once: python -m stylehub.bronze.events_bronze (it runs
       # src/stylehub/sql/bronze/01_events_partitioned.sql after it copies the table).
       - name: events_partitioned
