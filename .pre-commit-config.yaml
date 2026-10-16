@@ -20,6 +20,26 @@ repos:
     rev: v0.17.0
     hooks:
       - id: ruff-check
+      - id: ruff-format  # in CI it fails when a file is not formatted and shows the diff
+
+  # Type check and SQL lint, the same commands as CI. They are slow, so they run on `git push`.
+  # Install them once with:  uvx pre-commit install --hook-type pre-commit --hook-type pre-push
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy
+        entry: uv run --frozen --extra dev mypy
+        language: system
+        types: [python]
+        pass_filenames: false
+        stages: [pre-push]
+      - id: sqlfluff
+        name: sqlfluff lint
+        entry: uv run --frozen --extra dev sqlfluff lint dbt/models dbt/tests dbt/macros src/stylehub/sql
+        language: system
+        files: \.sql$
+        pass_filenames: false
+        stages: [pre-push]
 
   # Stops you from committing keys, tokens and passwords.
   - repo: https://github.com/gitleaks/gitleaks

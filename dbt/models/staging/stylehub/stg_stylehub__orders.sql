@@ -1,15 +1,17 @@
--- Staging: one row per order, the latest version of each order_id in Bronze. Cast types only.
--- Bronze keeps one snapshot per day, so the same order_id can appear in many days.
+-- Staging: one row per order, from the NEWEST Bronze snapshot only. Cast types only.
+-- Bronze keeps one full snapshot per day (see macros/latest_bronze_snapshot.sql). The dedupe
+-- below is a safety net: _batch_id breaks a tie when two rows have the same _ingested_at.
 
 WITH source AS (
-  SELECT *
-  FROM {{ source('stylehub', 'orders') }}
+  {{ latest_bronze_snapshot('orders') }}
 ),
+
 latest AS (
   SELECT *
   FROM source
-  QUALIFY ROW_NUMBER() OVER (PARTITION BY order_id ORDER BY _ingested_at DESC) = 1
+  QUALIFY ROW_NUMBER() OVER (PARTITION BY order_id ORDER BY _ingested_at DESC, _batch_id DESC) = 1
 )
+
 SELECT
   order_id,
   user_id,

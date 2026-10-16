@@ -15,9 +15,6 @@
 ) }}
 
 {% set lookback_days = var('events_lookback_days', 3) %}
-{% if execute and is_incremental() %}
-  {% set last_day = run_query('SELECT MAX(event_date) AS d FROM ' ~ this).columns[0][0] %}
-{% endif %}
 
 SELECT
   event_id,
@@ -31,6 +28,10 @@ SELECT
   event_time,
   DATE(event_time) AS event_date
 FROM {{ ref('stg_stylehub__events') }}
-{% if execute and is_incremental() and last_day is not none %}
-WHERE DATE(event_time) >= DATE_SUB(DATE '{{ last_day }}', INTERVAL {{ lookback_days }} DAY)
+{% if is_incremental() %}
+-- _dbt_max_partition is the newest event_date already in this table (dbt declares it for
+-- insert_overwrite). An empty table gives NULL, so the date falls back to 1970 and reads all.
+  WHERE
+    DATE(event_time)
+    >= DATE_SUB(COALESCE(_dbt_max_partition, DATE '1970-01-01'), INTERVAL {{ lookback_days }} DAY)
 {% endif %}

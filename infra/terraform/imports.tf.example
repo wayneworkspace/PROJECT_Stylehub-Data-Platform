@@ -1,0 +1,84 @@
+# Copy this file to imports.tf, then run `terraform plan`.
+#
+# It tells Terraform that these things ALREADY exist (made by setup_gcp.py or by the gcloud
+# commands in CD.md and DEPLOY_VM.md), so it adopts them instead of trying to create them again.
+# Delete every block whose resource does NOT exist yet, or `plan` stops with "Cannot import
+# non-existent remote object". After one successful `apply`, delete imports.tf.
+# If you set enable_ci = false, delete the sa-dbt-ci block too.
+# IAM bindings need no import: Terraform adds the ones that are missing.
+# The CI dataset blocks are left out on purpose: dbt-ci has not made them yet, Terraform will.
+
+import {
+  to = google_storage_bucket.raw
+  id = "${var.project_id}/${var.bucket_name}"
+}
+
+import {
+  to = google_bigquery_dataset.this["source"]
+  id = "projects/${var.project_id}/datasets/${var.datasets.source}"
+}
+
+import {
+  to = google_bigquery_dataset.this["bronze"]
+  id = "projects/${var.project_id}/datasets/${var.datasets.bronze}"
+}
+
+import {
+  to = google_bigquery_dataset.this["staging"]
+  id = "projects/${var.project_id}/datasets/${var.datasets.staging}"
+}
+
+import {
+  to = google_bigquery_dataset.this["silver"]
+  id = "projects/${var.project_id}/datasets/${var.datasets.silver}"
+}
+
+import {
+  to = google_bigquery_dataset.this["gold"]
+  id = "projects/${var.project_id}/datasets/${var.datasets.gold}"
+}
+
+import {
+  to = google_bigquery_dataset.this["ops"]
+  id = "projects/${var.project_id}/datasets/${var.datasets.ops}"
+}
+
+import {
+  to = google_artifact_registry_repository.images
+  id = "projects/${var.project_id}/locations/${var.region}/repositories/${var.artifact_repository}"
+}
+
+import {
+  to = google_service_account.this["sa-ingest"]
+  id = "projects/${var.project_id}/serviceAccounts/sa-ingest@${var.project_id}.iam.gserviceaccount.com"
+}
+
+import {
+  to = google_service_account.this["sa-transform"]
+  id = "projects/${var.project_id}/serviceAccounts/sa-transform@${var.project_id}.iam.gserviceaccount.com"
+}
+
+import {
+  to = google_service_account.this["sa-monitor"]
+  id = "projects/${var.project_id}/serviceAccounts/sa-monitor@${var.project_id}.iam.gserviceaccount.com"
+}
+
+import {
+  to = google_service_account.this["sa-github-cd"]
+  id = "projects/${var.project_id}/serviceAccounts/sa-github-cd@${var.project_id}.iam.gserviceaccount.com"
+}
+
+import {
+  to = google_service_account.this["sa-dbt-ci"]
+  id = "projects/${var.project_id}/serviceAccounts/sa-dbt-ci@${var.project_id}.iam.gserviceaccount.com"
+}
+
+import {
+  to = google_iam_workload_identity_pool.github
+  id = "projects/${var.project_id}/locations/global/workloadIdentityPools/github"
+}
+
+import {
+  to = google_iam_workload_identity_pool_provider.github_repo
+  id = "projects/${var.project_id}/locations/global/workloadIdentityPools/github/providers/github-repo"
+}

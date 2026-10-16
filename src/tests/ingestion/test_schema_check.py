@@ -3,7 +3,7 @@ from decimal import Decimal
 import pandas as pd
 import pytest
 
-from ingestion.schema_check import (
+from stylehub.ingestion.schema_check import (
     EXPECTED_SCHEMAS,
     SchemaError,
     column_kind,
@@ -100,6 +100,9 @@ def test_unknown_mode_is_rejected():
         (pd.Series(["a"]), "text"),
         (pd.Series(pd.to_datetime(["2026-10-01"])), "datetime"),
         (pd.Series([None, None]), None),
+        (pd.Series([True, False]), "bool"),
+        (pd.Series([1, None], dtype="Int64"), "int"),  # BigQuery gives nullable integers
+        (pd.Series([1, "a"]), "mixed-integer"),  # not one kind: reported as a type change
     ],
 )
 def test_column_kind(series, kind):
@@ -108,3 +111,24 @@ def test_column_kind(series, kind):
 
 def test_order_items_sample_matches_its_schema():
     assert not diff_schema(sample_frame("order_items"), EXPECTED_SCHEMAS["order_items"]).added
+
+
+def test_an_empty_column_gets_the_expected_type_so_parquet_does_not_write_null():
+    df = sample_frame("orders").assign(shipped_at=None, num_of_item=None, status=None)
+    out = enforce_schema(df, "orders")
+    assert str(out["shipped_at"].dtype) == "datetime64[ns, UTC]"
+    assert str(out["num_of_item"].dtype) == "Int64"
+    assert str(out["status"].dtype) == "string"
+    assert df["shipped_at"].isna().all() and df["shipped_at"].dtype == object  # input unchanged
+
+
+def test_absorbed_missing_columns_get_their_type_too():
+    df = sample_frame("orders").drop(columns=["num_of_item"])
+    out = enforce_schema(df, "orders", on_change="absorb")
+    assert str(out["num_of_item"].dtype) == "Int64"
+
+
+def test_users_age_is_part_of_the_contract_because_silver_reads_it():
+    assert EXPECTED_SCHEMAS["users"]["age"] == "int"
+    with pytest.raises(SchemaError, match="age"):
+        enforce_schema(sample_frame("users").drop(columns=["age"]), "users")

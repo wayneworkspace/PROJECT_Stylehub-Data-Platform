@@ -15,73 +15,117 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# One Python and one uv for every job, the same as the Docker image and Airflow.
+# Third-party actions are pinned to a full commit id, not a tag: a tag can be moved to other code.
+# Dependabot (.github/dependabot.yml) proposes the new ids. The comment names the version.
+env:
+  PYTHON_VERSION: "3.12"
+  UV_VERSION: "0.12.13"
+
 jobs:
   pre-commit:
     name: Pre-commit checks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.3.0
-      - name: Run all pre-commit hooks (ruff, gitleaks, file checks)
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Run all pre-commit hooks (ruff lint and format, gitleaks, file checks)
         run: uvx pre-commit run --all-files --show-diff-on-failure
 
   test:
-    name: Lint and tests
+    name: Types, tests, dbt, SQL
     runs-on: ubuntu-latest
-    services:
-      # A throwaway Postgres for the integration tests. The password is for CI only.
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: stylehub
-          POSTGRES_PASSWORD: stylehub_local
-          POSTGRES_DB: stylehub
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U stylehub -d stylehub"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-    env:
-      PG_HOST: localhost
-      PG_PORT: "5432"
-      PG_DATABASE: stylehub
-      PG_USER: stylehub
-      PG_PASSWORD: stylehub_local
     steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.3.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
           enable-cache: true
       - name: Install dependencies from the lock file
         run: uv sync --frozen --extra dev --extra dbt
-      - name: Lint
-        run: uv run ruff check .
-      - name: Unit tests
-        run: uv run pytest
+      - name: Type check
+        run: uv run mypy
+      - name: Tests (fails if coverage drops below fail_under in pyproject.toml)
+        run: uv run pytest --cov
       - name: Check the dbt project (no BigQuery connection)
-        run: uv run python -m transform.run_dbt all --command parse
+        run: uv run python -m stylehub.transform.run_dbt all --command parse
         env:
           GCP_PROJECT_ID: ci-dummy-project
           GCS_BUCKET: ci-dummy-bucket
-      - name: Load the sample data into Postgres
-        run: psql -h localhost -U stylehub -d stylehub -v ON_ERROR_STOP=1 -f dev/postgres/init/01_seed.sql
-        env:
-          PGPASSWORD: stylehub_local
-      - name: Integration tests
-        run: uv run pytest -m integration
+      - name: SQL lint (BigQuery dialect, no connection)
+        run: uv run sqlfluff lint dbt/models dbt/tests dbt/macros src/stylehub/sql
+      - name: Known vulnerabilities in the locked Python packages
+        run: |
+          uv export --frozen --no-hashes --no-emit-project --extra dbt -o requirements-audit.txt
+          uvx pip-audit -r requirements-audit.txt --no-deps --disable-pip --progress-spinner off
 
   docker:
     name: Docker image
     runs-on: ubuntu-latest
+    env:
+      IMAGE: stylehub-pipeline:${{ github.sha }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Build the image
-        run: docker build -f deploy/pipeline/Dockerfile -t stylehub-pipeline .
+        run: docker build --pull --build-arg UV_VERSION="$UV_VERSION" -f deploy/pipeline/Dockerfile -t "$IMAGE" .
       - name: The image starts
-        run: docker run --rm stylehub-pipeline python -m orchestration.run_daily --help
+        run: docker run --rm "$IMAGE" python -m stylehub.orchestration.run_daily --help
       - name: The image does not run as root
-        run: test "$(docker run --rm stylehub-pipeline id -u)" != "0"
+        run: test "$(docker run --rm "$IMAGE" id -u)" != "0"
       - name: The compose file is valid (all profiles)
-        run: docker compose --profile dev --profile pipeline --profile airflow config --quiet
+        run: docker compose --profile pipeline --profile airflow config --quiet
+      - name: The Airflow image builds, and the DAG loads inside it
+        run: |
+          docker build --build-arg UV_VERSION="$UV_VERSION" -f deploy/airflow/Dockerfile \
+            -t "stylehub-airflow:${{ github.sha }}" .
+          docker run --rm --entrypoint python "stylehub-airflow:${{ github.sha }}" -c "
+          from airflow.dag_processing.dagbag import DagBag
+          bag = DagBag(dag_folder='/opt/airflow/dags')
+          assert not bag.import_errors, bag.import_errors
+          assert 'stylehub_daily' in bag.dags
+          print('DAG ok:', sorted(bag.dags['stylehub_daily'].task_ids))"
+      - name: Scan the image for known vulnerabilities (HIGH and CRITICAL that have a fix)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+      - name: List what is inside the image (SBOM, CycloneDX)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE }}
+          format: cyclonedx
+          output: sbom.cdx.json
+      # From here only on main. CD does NOT build again: it takes THIS image, the one that was
+      # tested above, and pushes it. So what runs on the VM is exactly what CI checked.
+      - name: Save the image for CD
+        if: github.event_name == 'push'
+        run: docker save "$IMAGE" | gzip > pipeline-image.tar.gz
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        if: github.event_name == 'push'
+        with:
+          name: pipeline-image
+          path: pipeline-image.tar.gz
+          retention-days: 1
+          compression-level: 0 # already gzip
+      # The Airflow image is the one that runs every day, so CD publishes it as well.
+      - name: Save the Airflow image for CD
+        if: github.event_name == 'push'
+        run: docker save "stylehub-airflow:${{ github.sha }}" | gzip > airflow-image.tar.gz
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        if: github.event_name == 'push'
+        with:
+          name: airflow-image
+          path: airflow-image.tar.gz
+          retention-days: 1
+          compression-level: 0 # already gzip
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: sbom
+          path: sbom.cdx.json
+          retention-days: 90

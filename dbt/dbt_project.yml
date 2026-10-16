@@ -13,15 +13,22 @@ clean-targets: ["target", "dbt_packages"]
 vars:
   # How many days back fact_events is rebuilt each run (late events inside this window are kept).
   events_lookback_days: 3
+  # Order statuses that are NOT revenue (used by the macro revenue_order_filter).
+  # Returned orders still count today. To report revenue after returns, add 'Returned' here.
+  revenue_excluded_statuses: ['Cancelled']
+  # The newest Bronze snapshot must have at least this share of the rows of the one before it.
+  bronze_min_snapshot_ratio: 0.9
 
 models:
   stylehub:
     # Folders follow dbt Labs (staging -> intermediate -> marts). The datasets and the tags keep the
     # medallion names: the silver step builds staging, intermediate and marts/core, the gold step
     # builds marts/reporting.
+    # Staging has its OWN dataset: it still holds the email and the exact location of a customer
+    # (dim_users hides them). Give analysts access to silver and gold, not to staging.
     staging:
       +materialized: view
-      +schema: "{{ env_var('BQ_SILVER', 'stylehub_silver') }}"
+      +schema: "{{ env_var('BQ_STAGING', 'stylehub_staging') }}"
       +tags: ["silver"]
     intermediate:
       +materialized: view

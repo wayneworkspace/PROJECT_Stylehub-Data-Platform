@@ -2,20 +2,28 @@
 name = "stylehub-data-platform"
 version = "0.1.0"
 description = "Data platform on GCP for the StyleHub dataset, built following a 5-session curriculum"
-requires-python = ">=3.11"
+requires-python = ">=3.12,<3.13"  # one version everywhere: CI, Docker image, Airflow, your laptop
 dependencies = [
     "google-cloud-bigquery>=3.25",
     "google-cloud-bigquery-storage>=2.25",
     "google-cloud-storage>=2.18",
     "pandas>=2.2",
     "pyarrow>=16",
-    "psycopg2-binary>=2.9",
     "python-dotenv>=1.0",
     "requests>=2.32",
+    "tenacity>=9",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "pyyaml>=6", "ruff>=0.6"]
+dev = [
+    "mypy>=1.11",
+    "pytest>=8",
+    "pytest-cov>=5",
+    "pyyaml>=6",
+    "ruff>=0.6",
+    "sqlfluff>=3",
+    "types-requests>=2.32",
+]
 # Silver and Gold with dbt. Airflow is NOT here: install it on its own (see deploy/airflow/README.md).
 dbt = ["dbt-bigquery>=1.10"]
 
@@ -24,27 +32,54 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-# Python packages live in src/python. This lets `python -m orchestration.run_daily` work from any folder.
-packages = [
-    "src/python/common",
-    "src/python/ingestion",
-    "src/python/storage",
-    "src/python/transform",
-    "src/python/orchestration",
-]
+# One package, `stylehub`, lives in src. This lets `python -m stylehub.orchestration.run_daily`
+# work from any folder, and the names common/bronze/setup/transform cannot clash with other libraries.
+packages = ["src/stylehub"]
 
 [tool.ruff]
 line-length = 100
+target-version = "py312"
 extend-exclude = ["to_delete"]
 # Tell ruff where the first-party packages live, so import sorting works.
-src = ["src/python", "src"]
+src = ["src"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP"]
+# E,F pycodestyle/pyflakes; I imports; UP modern syntax; B likely bugs; SIM simplify;
+# S security checks (SQL built from text, subprocess, urlopen); DTZ naive datetimes (always UTC
+# here); PTH pathlib instead of os.path; RUF ruff's own checks; C4 simpler comprehensions.
+select = ["E", "F", "I", "UP", "B", "SIM", "S", "DTZ", "PTH", "RUF", "C4"]
+
+[tool.ruff.lint.per-file-ignores]
+# pytest uses plain `assert`, and tests may use fake secrets and run small commands.
+"src/tests/**" = ["S101", "S105", "S106", "S603", "S607", "RUF043", "RUF059"]
+
+[tool.mypy]
+# Type check the package. Only the libraries that have no type hints are skipped (see the
+# override below), so a typo in any other import is still found.
+files = ["src/stylehub", "deploy/airflow/dags"]
+python_version = "3.12"
+disallow_untyped_defs = true
+no_implicit_optional = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+
+[[tool.mypy.overrides]]
+# No type hints or stubs installed: pandas, pyarrow, yaml, google-cloud-storage (no py.typed marker)
+# and Airflow (installed only in its image). requests has stubs: types-requests in the dev extra.
+module = ["pandas.*", "pyarrow.*", "yaml.*", "airflow.*", "google.cloud.storage.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["src/tests"]
-pythonpath = ["src/python", "src"]
-# Integration tests need a real Postgres. Run them on purpose with: pytest -m integration
-addopts = "-m 'not integration'"
-markers = ["integration: needs a running Postgres (see docker-compose.yaml)"]
+pythonpath = ["src"]
+
+[tool.coverage.run]
+source = ["stylehub"]
+branch = true
+
+[tool.coverage.report]
+# The tests must keep covering most of the code. Lines and branches are both counted.
+# It was 85% when only lines were counted. Check the new number with `uv run pytest --cov`.
+fail_under = 80
+show_missing = true
+skip_covered = true

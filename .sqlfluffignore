@@ -1,0 +1,4 @@
+dbt/target/
+dbt/dbt_packages/
+to_delete/
+.venv/

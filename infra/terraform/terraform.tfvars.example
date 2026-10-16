@@ -1,0 +1,9 @@
+# Copy to terraform.tfvars (Git ignores that file) and fill in your values.
+project_id        = "your-gcp-project-id"
+bucket_name       = "your-raw-zone-bucket"
+github_repository = "OWNER/REPO"
+
+# region = "asia-southeast1"   # must match GCP_LOCATION
+# enable_ci = false            # true (default) makes sa-dbt-ci and the dbt_ci_* datasets
+# bucket_location = "ASIA"         # only if the existing bucket is not in var.region
+# source_location = "US"         # only if the source dataset is not in var.region

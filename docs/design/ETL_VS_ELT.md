@@ -53,7 +53,7 @@ uv run pytest src/tests/transform/test_business_rules.py
 3. See how many bytes Gold will scan, before you pay for it.
 
 ```powershell
-uv run python -m transform.run_dbt gold --command compile
+uv run python -m stylehub.transform.run_dbt gold --command compile
 ```
 
 (`compile` only shows the SQL. To see the bytes, run the compiled SQL with a BigQuery dry run.)
@@ -61,7 +61,7 @@ uv run python -m transform.run_dbt gold --command compile
 4. Rebuild Gold only. dbt runs the tests too.
 
 ```powershell
-uv run python -m transform.run_dbt gold
+uv run python -m stylehub.transform.run_dbt gold
 ```
 
 Silver is not rebuilt and nothing is loaded again. That is the point of ELT with layers.

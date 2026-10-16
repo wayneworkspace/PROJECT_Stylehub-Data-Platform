@@ -3,7 +3,7 @@
 import pytest
 from google.api_core import exceptions
 
-from common.retry import call_with_retry, is_transient
+from stylehub.common.retry import call_with_retry, is_transient
 
 
 class Flaky:
@@ -44,6 +44,14 @@ def test_gives_up_after_the_last_try():
     with pytest.raises(exceptions.ServiceUnavailable):
         call_with_retry(func, attempts=3, sleep=lambda s: None)
     assert func.calls == 3
+
+
+@pytest.mark.parametrize(
+    "error",
+    [ConnectionResetError("reset"), TimeoutError("slow"), exceptions.Aborted("conflict")],
+)
+def test_network_resets_and_aborted_jobs_are_short_lived(error):
+    assert is_transient(error)
 
 
 def test_a_bigquery_reason_counts_as_short_lived():

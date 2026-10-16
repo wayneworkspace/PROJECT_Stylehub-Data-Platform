@@ -6,5 +6,6 @@ SELECT
   sale_price,
   cost
 FROM {{ ref('fact_order_items') }}
-WHERE sale_price < 0
+WHERE
+  sale_price < 0
   OR cost < 0
