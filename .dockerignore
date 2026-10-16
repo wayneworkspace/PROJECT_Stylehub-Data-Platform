@@ -21,7 +21,10 @@ data
 docs
 to_delete
 src/tests
-deploy
+# deploy/ is not needed in the pipeline image. The Airflow image needs the DAG only.
+deploy/pipeline
+deploy/airflow/README.md
+deploy/airflow/Dockerfile
 
 # Not needed inside an image: dbt writes these when it runs
 dbt/target

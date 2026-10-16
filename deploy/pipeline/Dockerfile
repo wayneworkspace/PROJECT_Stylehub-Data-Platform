@@ -1,7 +1,15 @@
 # Runs the pipeline in a clean, repeatable environment.
 # Build (from the project folder):  docker build -f deploy/pipeline/Dockerfile -t stylehub-pipeline .
-# Run:    docker run --rm stylehub-pipeline python -m orchestration.run_daily --help
-FROM python:3.12-slim
+# Run:    docker run --rm stylehub-pipeline python -m stylehub.orchestration.run_daily --help
+#
+# Pins: Python 3.12 (the same version as CI and Airflow), a fixed uv version, a fixed Debian
+# release, and the digest of the base image (checked on 2026-10-16, Python 3.12.15). The digest is
+# the multi-platform index, so amd64 and arm64 both work. To read the digest of a tag again:
+#   docker buildx imagetools inspect python:3.12-slim-bookworm
+# Dependabot (.github/dependabot.yml) proposes new digests as pull requests.
+FROM python:3.12-slim-bookworm@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258
+
+ARG UV_VERSION=0.12.13
 
 ENV PYTHONUNBUFFERED=1 \
     UV_COMPILE_BYTECODE=1 \
@@ -9,22 +17,23 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-RUN pip install --no-cache-dir uv
+RUN pip install --no-cache-dir "uv==${UV_VERSION}"
+
+# Do not run as root. logs/ is where pipeline_runs rows wait when BigQuery is down.
+RUN useradd --create-home app && mkdir -p /app/logs && chown app:app /app /app/logs
 
 # Install dependencies first. Docker reuses this layer until pyproject.toml or uv.lock changes.
-COPY pyproject.toml uv.lock ./
+COPY pyproject.toml uv.lock .python-version ./
 RUN uv sync --frozen --no-dev --extra dbt --no-install-project
 
-COPY src/python ./src/python
-COPY src/sql ./src/sql
-COPY dbt ./dbt
-
-# Do not run as root.
-RUN useradd --create-home app && chown -R app /app
+# --chown here, not a recursive chown afterwards: that would copy every file into a new layer.
+COPY --chown=app:app src/stylehub ./src/stylehub
+COPY --chown=app:app dbt ./dbt
 USER app
 
 ENV PATH="/app/.venv/bin:$PATH" \
-    PYTHONPATH="/app/src/python"
+    PYTHONPATH="/app/src"
 
-# Secrets are never baked into the image. Pass them as environment variables or mount a key file.
-CMD ["python", "-m", "orchestration.run_daily", "--help"]
+# Secrets are never baked into the image. On a GCP VM the container uses the service account
+# of the VM. On your laptop, mount a key file or pass environment variables.
+CMD ["python", "-m", "stylehub.orchestration.run_daily", "--help"]
