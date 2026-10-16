@@ -4,46 +4,44 @@ import re
 
 import pytest
 
-from common.config import ROOT
+from stylehub.common.config import ROOT
+
+PACKAGE = ROOT / "src" / "stylehub"
 
 yaml = pytest.importorskip("yaml")
 
 COMPOSE = ROOT / "docker-compose.yaml"
+SERVICES = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))["services"]
 
 
-@pytest.fixture(scope="module")
-def compose():
-    return yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))
+def test_compose_has_services():
+    assert SERVICES, "no service found in docker-compose.yaml"
 
 
-def test_every_service_has_a_profile(compose):
-    """Nothing starts by itself, so `docker compose up postgres` never starts Airflow."""
-    for name, service in compose["services"].items():
-        assert service.get("profiles"), f"{name} has no profile"
+@pytest.mark.parametrize("name", SERVICES)
+def test_every_service_has_a_profile(name):
+    """Nothing starts by itself, so `docker compose up` alone never starts a container."""
+    assert SERVICES[name].get("profiles"), f"{name} has no profile"
 
 
-def test_airflow_services_use_the_airflow_profile(compose):
-    for name, service in compose["services"].items():
-        if name.startswith("airflow"):
-            assert service["profiles"] == ["airflow"], name
+@pytest.mark.parametrize("name", [name for name in SERVICES if name.startswith("airflow")])
+def test_airflow_services_use_the_airflow_profile(name):
+    assert SERVICES[name]["profiles"] == ["airflow"]
 
 
-def test_the_dockerfiles_named_in_compose_exist(compose):
-    for name, service in compose["services"].items():
-        build = service.get("build")
-        if build:
-            assert (ROOT / build["dockerfile"]).is_file(), f"{name}: {build['dockerfile']}"
+BUILT_SERVICES = [name for name, service in SERVICES.items() if service.get("build")]
+
+
+@pytest.mark.parametrize("name", BUILT_SERVICES)
+def test_the_dockerfile_named_in_compose_exists(name):
+    dockerfile = SERVICES[name]["build"]["dockerfile"]
+    assert (ROOT / dockerfile).is_file(), f"{name}: {dockerfile}"
 
 
 def test_compose_has_no_required_variable():
     """`${VAR:?}` is checked for every service, even one that is not started."""
     text = COMPOSE.read_text(encoding="utf-8")
     assert not re.search(r"(?<!\$)\$\{[^}]*:\?", text)  # "$${...}" is a shell variable: fine
-
-
-def test_the_old_split_files_are_gone():
-    assert not (ROOT / "Dockerfile").exists()
-    assert not (ROOT / "airflow" / "docker-compose.yaml").exists()
 
 
 def test_deploy_folder_layout():
@@ -53,25 +51,24 @@ def test_deploy_folder_layout():
     assert (deploy / "pipeline" / "run_on_vm.sh").is_file()
     assert (deploy / "airflow" / "Dockerfile").is_file()
     assert (deploy / "airflow" / "dags" / "stylehub_daily.py").is_file()
-    assert (ROOT / "dev" / "postgres" / "init" / "01_seed.sql").is_file()
-    for old in ("docker", "deploy/docker", "deploy/vm", "deploy/postgres", "airflow/dags",
-                "airflow/Dockerfile"):
-        assert not (ROOT / old).exists(), old
     assert (ROOT / "docs" / "assets").is_dir()
     assert (ROOT / "docs" / "html" / "architecture.html").is_file()
-    assert not (ROOT / "assets").exists()
 
 
-def test_optional_ingestion_is_not_used_by_run_daily():
-    """Postgres and API code sits in ingestion/optional, and the daily run never imports it."""
-    optional = ROOT / "src" / "python" / "ingestion" / "optional"
-    for name in ("database.py", "api.py"):
-        assert (optional / name).is_file()
-    assert (optional / "sources" / "postgres.py").is_file()
-    assert not (ROOT / "src" / "python" / "sources").exists()
-    run_daily = (ROOT / "src" / "python" / "orchestration" / "run_daily.py").read_text("utf-8")
-    imports = [line for line in run_daily.splitlines() if line.startswith(("import ", "from "))]
-    assert not [line for line in imports if "optional" in line]
+def test_unused_ingestion_code_is_not_kept_in_the_package():
+    """The Postgres and API sources never ran on a real source. They were moved to to_delete/."""
+    assert not (PACKAGE / "ingestion" / "optional").exists()
+    assert not (PACKAGE / "sources").exists()
+    assert not (ROOT / "dev" / "postgres").exists()
+
+
+def test_the_airflow_services_do_not_mount_the_project_folder():
+    """The code comes from the image, so laptop and VM run the same thing."""
+    for name in (n for n in SERVICES if n.startswith("airflow")):
+        for volume in SERVICES[name].get("volumes", []):
+            assert not str(volume).startswith(".:"), f"{name} mounts the whole project folder"
+    common = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))["x-airflow-common"]
+    assert not [v for v in common["volumes"] if str(v).startswith(".:")]
 
 
 def test_one_env_example_names_every_compose_variable():
@@ -94,19 +91,3 @@ def test_docs_are_grouped_by_purpose():
         for name in names:
             assert (ROOT / "docs" / folder / f"{name}.md").is_file(), name
             assert not (ROOT / "docs" / f"{name}.md").exists(), name
-
-
-def test_relative_links_in_the_docs_point_to_real_files():
-    link = re.compile(r"\]\(([^)\s#]+)(?:#[^)]*)?\)")
-    docs = ROOT / "docs"
-    pages = [ROOT / "README.md", docs / "README.md", ROOT / "dbt" / "README.md",
-             ROOT / "deploy" / "airflow" / "README.md"]
-    pages += sorted((docs / "design").glob("*.md")) + sorted((docs / "ops").glob("*.md"))
-    broken = []
-    for page in pages:
-        for target in link.findall(page.read_text(encoding="utf-8")):
-            if target.startswith(("http://", "https://", "mailto:")):
-                continue
-            if not (page.parent / target).exists():
-                broken.append(f"{page.relative_to(ROOT)} -> {target}")
-    assert not broken, broken

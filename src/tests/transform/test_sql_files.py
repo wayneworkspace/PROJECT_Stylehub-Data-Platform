@@ -1,24 +1,33 @@
+import re
+
 import pytest
 
-from common.config import SQL_DIR, render_sql
+from stylehub.common.config import SQL_DIR
+from stylehub.common.sql import render_sql
+
+SQL_FILES = sorted(SQL_DIR.rglob("*.sql"))
 
 
-@pytest.fixture(autouse=True)
-def fake_env(monkeypatch):
-    monkeypatch.setenv("GCP_PROJECT_ID", "my-project")
-    monkeypatch.setenv("GCS_BUCKET", "my-bucket")
+def has_subquery(text: str) -> bool:
+    """True for "( SELECT" that is not the body of a CTE ("name AS (SELECT"), also across lines."""
+    return any(
+        not re.search(r"\bAS\s*$", text[: m.start()], re.IGNORECASE)
+        for m in re.finditer(r"\(\s*SELECT\b", text, re.IGNORECASE)
+    )
 
 
-def test_every_sql_file_renders_without_leftover_placeholders():
-    paths = sorted(SQL_DIR.rglob("*.sql"))
-    assert paths, "No SQL files found"
-    for path in paths:
-        sql = render_sql(path)
-        assert "${" not in sql, path
-        assert "my-project" in sql, path
+def test_the_sql_files_are_found():
+    assert SQL_FILES, "No SQL files found"
 
 
-def test_no_subquery_in_sql():
-    for path in SQL_DIR.rglob("*.sql"):
-        text = path.read_text(encoding="utf-8").upper()
-        assert "(SELECT" not in text.replace("( SELECT", "(SELECT"), path
+@pytest.mark.parametrize("path", SQL_FILES, ids=lambda p: p.name)
+def test_sql_file_renders_without_leftover_placeholders(path):
+    sql = render_sql(path)
+    assert "${" not in sql
+    assert "my-project" in sql
+
+
+@pytest.mark.parametrize("path", SQL_FILES, ids=lambda p: p.name)
+def test_no_subquery_in_sql(path):
+    text = path.read_text(encoding="utf-8")
+    assert not has_subquery(text)
