@@ -83,8 +83,8 @@ jobs:
           docker build --build-arg UV_VERSION="$UV_VERSION" -f deploy/airflow/Dockerfile \
             -t "stylehub-airflow:${{ github.sha }}" .
           docker run --rm --entrypoint python "stylehub-airflow:${{ github.sha }}" -c "
-          from airflow.models import DagBag
-          bag = DagBag('/opt/airflow/dags', include_examples=False)
+          from airflow.dag_processing.dagbag import DagBag
+          bag = DagBag(dag_folder='/opt/airflow/dags')
           assert not bag.import_errors, bag.import_errors
           assert 'stylehub_daily' in bag.dags
           print('DAG ok:', sorted(bag.dags['stylehub_daily'].task_ids))"
