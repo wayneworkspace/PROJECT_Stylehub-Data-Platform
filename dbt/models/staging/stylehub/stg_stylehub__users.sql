@@ -1,15 +1,16 @@
--- Staging: one row per customer, the latest version of each id in Bronze.
+-- Staging: one row per customer, from the NEWEST Bronze snapshot only.
 -- The CSV holds the text 'null' in some city values; it becomes a real NULL here.
 
 WITH source AS (
-  SELECT *
-  FROM {{ source('stylehub', 'users') }}
+  {{ latest_bronze_snapshot('users') }}
 ),
+
 latest AS (
   SELECT *
   FROM source
-  QUALIFY ROW_NUMBER() OVER (PARTITION BY id ORDER BY _ingested_at DESC) = 1
+  QUALIFY ROW_NUMBER() OVER (PARTITION BY id ORDER BY _ingested_at DESC, _batch_id DESC) = 1
 )
+
 SELECT
   id,
   email,

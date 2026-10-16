@@ -1,0 +1,105 @@
+version: 2
+
+# Unit tests: they check the business rules of Gold on a few made-up rows, not on real data.
+# The data tests in _reporting__models.yaml ask "is the data we have right?". These ask
+# "does the SQL do what the rule says?", so a changed rule that breaks the SQL fails here.
+# They run inside `dbt build` (tag gold). dbt reads the column types of the input tables from
+# the warehouse, so Silver must exist first: the silver step runs before the gold step.
+unit_tests:
+  - name: daily_revenue_excludes_cancelled_and_splits_returned
+    description: >
+      A Cancelled order is not revenue. A Returned order is in revenue and in returned_amount,
+      but not in net_revenue. An order without items still counts as an order with 0 revenue.
+    model: daily_revenue
+    config:
+      tags: ["gold"]
+    given:
+      - input: ref('fact_orders')
+        rows:
+          - {order_id: 1, status: Complete, order_date: "2026-10-01"}
+          - {order_id: 2, status: Cancelled, order_date: "2026-10-01"}
+          - {order_id: 3, status: Returned, order_date: "2026-10-01"}
+          - {order_id: 4, status: Processing, order_date: "2026-10-02"}
+      - input: ref('fact_order_items')
+        rows:
+          - {order_id: 1, sale_price: 10}
+          - {order_id: 1, sale_price: 5}
+          - {order_id: 2, sale_price: 99}
+          - {order_id: 3, sale_price: 20}
+    expect:
+      rows:
+        - {order_date: "2026-10-01", n_orders: 2, revenue: 35, returned_amount: 20, net_revenue: 15}
+        - {order_date: "2026-10-02", n_orders: 1, revenue: 0, returned_amount: 0, net_revenue: 0}
+
+  - name: monthly_revenue_keeps_unknown_products_and_skips_missing_cost
+    description: >
+      An item whose product is unknown stays in revenue under category 'Unknown'. An item without
+      a cost adds 0 to profit_at_current_cost and is counted in n_items_without_cost. A Cancelled
+      order is left out.
+    model: monthly_revenue_by_category
+    config:
+      tags: ["gold"]
+    given:
+      - input: ref('fact_orders')
+        rows:
+          - {order_id: 1, status: Complete, order_date: "2026-10-05"}
+          - {order_id: 2, status: Cancelled, order_date: "2026-10-06"}
+      - input: ref('fact_order_items')
+        rows:
+          - {order_id: 1, product_id: 1, sale_price: 10, cost: 4}
+          - {order_id: 1, product_id: 99, sale_price: 5}
+          - {order_id: 2, product_id: 1, sale_price: 50, cost: 4}
+      - input: ref('dim_products')
+        rows:
+          - {id: 1, category: Jeans}
+    expect:
+      rows:
+        - {month: "2026-10-01", category: Jeans, revenue: 10, profit_at_current_cost: 6, n_items_without_cost: 0}
+        - {month: "2026-10-01", category: Unknown, revenue: 5, profit_at_current_cost: 0, n_items_without_cost: 1}
+
+  - name: funnel_counts_a_stage_only_after_the_stage_before
+    description: >
+      Session 101 views, carts and buys in order. Session 102 carts BEFORE it views, so it counts
+      as a view only. An event without a session id is left out.
+    model: funnel_by_category
+    config:
+      tags: ["gold"]
+    # user_session is a number (INT64) in fact_events: a text id like "s1" would become NULL and
+    # the model would return no rows.
+    given:
+      - input: ref('fact_events')
+        rows:
+          - {product_id: 1, event_type: view, user_session: 101, event_time: "2026-10-01 10:00:00"}
+          - {product_id: 1, event_type: cart, user_session: 101, event_time: "2026-10-01 10:05:00"}
+          - {product_id: 1, event_type: purchase, user_session: 101, event_time: "2026-10-01 10:10:00"}
+          - {product_id: 1, event_type: cart, user_session: 102, event_time: "2026-10-01 09:00:00"}
+          - {product_id: 1, event_type: view, user_session: 102, event_time: "2026-10-01 10:00:00"}
+          - {product_id: 1, event_type: view, event_time: "2026-10-01 11:00:00"}
+      - input: ref('dim_products')
+        rows:
+          - {id: 1, category: Jeans}
+    # Only the counts are compared. The two rates are FLOAT64 in the model but dbt reads 0.5 in a
+    # yaml file as NUMERIC, and a type difference fails the test (seen on 2026-10-16). The rates
+    # are checked by the data test funnel_rates_at_most_one.
+    expect:
+      rows:
+        - {category: Jeans, n_view_sessions: 2, n_cart_sessions: 1, n_purchase_sessions: 1}
+
+  - name: return_rate_counts_only_shipped_orders
+    description: >
+      An order that never shipped (shipped_at is empty) is not in the denominator of the rate.
+    model: return_rate_by_state
+    config:
+      tags: ["gold"]
+    given:
+      - input: ref('fact_orders')
+        rows:
+          - {order_id: 1, user_id: 1, status: Returned, shipped_at: "2026-10-02 08:00:00"}
+          - {order_id: 2, user_id: 1, status: Complete, shipped_at: "2026-10-02 09:00:00"}
+          - {order_id: 3, user_id: 1, status: Cancelled}
+      - input: ref('dim_users')
+        rows:
+          - {id: 1, state: California}
+    expect:
+      rows:
+        - {state: California, n_orders: 2, n_returned: 1, return_rate: 0.5}

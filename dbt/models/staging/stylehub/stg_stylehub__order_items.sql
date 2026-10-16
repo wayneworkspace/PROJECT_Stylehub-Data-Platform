@@ -1,14 +1,15 @@
--- Staging: one row per order item (one unit sold), the latest version of each id in Bronze.
+-- Staging: one row per order item (one unit sold), from the NEWEST Bronze snapshot only.
 
 WITH source AS (
-  SELECT *
-  FROM {{ source('stylehub', 'order_items') }}
+  {{ latest_bronze_snapshot('order_items') }}
 ),
+
 latest AS (
   SELECT *
   FROM source
-  QUALIFY ROW_NUMBER() OVER (PARTITION BY id ORDER BY _ingested_at DESC) = 1
+  QUALIFY ROW_NUMBER() OVER (PARTITION BY id ORDER BY _ingested_at DESC, _batch_id DESC) = 1
 )
+
 SELECT
   id,
   order_id,

@@ -8,6 +8,7 @@ WITH source AS (
   SELECT *
   FROM {{ source('stylehub', 'events_partitioned') }}
 )
+
 SELECT
   event_id,
   user_id,

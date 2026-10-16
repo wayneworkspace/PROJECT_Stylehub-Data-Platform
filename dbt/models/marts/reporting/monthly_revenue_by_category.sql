@@ -1,26 +1,34 @@
 -- Question: revenue and profit by category per month (session 5, exercise 1).
--- Rules at Gold: exclude Cancelled orders, profit = sale_price - cost, month = the order's month.
+-- Rules at Gold: exclude the statuses of revenue_order_filter (Cancelled),
+-- profit_at_current_cost = sale_price - the product's cost TODAY (not the cost on the sale day),
+-- month = the order's month.
+-- An item whose product is unknown still counts in revenue (category 'Unknown'), so the revenue
+-- here adds up to daily_revenue (the test monthly_matches_daily_revenue checks it).
+-- An item without a cost adds 0 to profit_at_current_cost and is counted in n_items_without_cost.
 
 WITH valid_orders AS (
   SELECT order_id, order_date
   FROM {{ ref('fact_orders') }}
-  WHERE status != 'Cancelled'
+  WHERE {{ revenue_order_filter('status') }}
 ),
+
 items AS (
   SELECT
-    i.product_id,
+    o.order_date,
+    COALESCE(p.category, 'Unknown') AS category,
     i.sale_price,
-    i.cost,
-    o.order_date
+    i.cost
   FROM {{ ref('fact_order_items') }} AS i
   INNER JOIN valid_orders AS o USING (order_id)
+  LEFT JOIN {{ ref('dim_products') }} AS p
+    ON i.product_id = p.id
 )
+
 SELECT
-  DATE_TRUNC(i.order_date, MONTH) AS month,
-  p.category,
-  SUM(i.sale_price) AS revenue,
-  SUM(i.sale_price - i.cost) AS profit
-FROM items AS i
-INNER JOIN {{ ref('dim_products') }} AS p
-  ON i.product_id = p.id
-GROUP BY month, p.category
+  DATE_TRUNC(order_date, MONTH) AS month,
+  category,
+  SUM(sale_price) AS revenue,
+  SUM(IF(cost IS NULL, 0, sale_price - cost)) AS profit_at_current_cost,
+  COUNTIF(cost IS NULL) AS n_items_without_cost
+FROM items
+GROUP BY month, category
