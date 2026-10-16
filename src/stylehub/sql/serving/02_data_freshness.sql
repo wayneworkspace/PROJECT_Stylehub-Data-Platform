@@ -9,6 +9,9 @@ WITH loads AS (
   UNION ALL
   SELECT 'products' AS table_name, MAX(_ingested_at) AS last_loaded_at
   FROM `${project}.${bronze}.products`
+  UNION ALL
+  SELECT 'users' AS table_name, MAX(_ingested_at) AS last_loaded_at
+  FROM `${project}.${bronze}.users`
 )
 
 SELECT

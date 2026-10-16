@@ -33,7 +33,6 @@ x-airflow-common: &airflow-common
     # How the DAG starts the pipeline (see deploy/airflow/dags/stylehub_daily.py).
     STYLEHUB_HOME: /opt/stylehub
     STYLEHUB_RUN: uv run --no-sync
-    # The DAG sends the failure alert itself (alert_on_failure). Empty = no alert.
   volumes:
     # No project folder and no DAG folder here: code and DAG are inside the image
     # (deploy/airflow/Dockerfile), so what runs on your laptop is what runs on the VM.

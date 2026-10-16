@@ -16,8 +16,6 @@ vars:
   # Order statuses that are NOT revenue (used by the macro revenue_order_filter).
   # Returned orders still count today. To report revenue after returns, add 'Returned' here.
   revenue_excluded_statuses: ['Cancelled']
-  # The newest Bronze snapshot must have at least this share of the rows of the one before it.
-  bronze_min_snapshot_ratio: 0.9
 
 models:
   stylehub:
