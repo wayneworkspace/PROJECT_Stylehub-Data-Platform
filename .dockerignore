@@ -3,7 +3,6 @@
 .venv
 __pycache__
 *.pyc
-.pytest_cache
 .ruff_cache
 .idea
 
@@ -18,9 +17,7 @@ logs
 # Course data can be many GB. Keep it out of the build context.
 data
 
-docs
 to_delete
-src/tests
 # deploy/ is not needed in the pipeline image. The Airflow image needs the DAG only.
 deploy/pipeline
 deploy/airflow/README.md

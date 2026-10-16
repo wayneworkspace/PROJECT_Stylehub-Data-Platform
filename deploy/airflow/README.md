@@ -15,7 +15,7 @@ Each task runs one step of the same code as `python -m stylehub.orchestration.ru
 |---|---|---|
 | `start`, `end` | `EmptyOperator` | Does no work. Marks where a run begins and ends |
 | `ingest`, `bronze` | `ExternalPythonOperator` | Airflow calls a Python function inside the pipeline environment (`/opt/venv/stylehub`) |
-| `silver`, `gold` | `BashOperator` | Starts `run_daily --no-alert`, which starts dbt and saves the run |
+| `silver`, `gold` | `BashOperator` | Starts `run_daily`, which starts dbt and saves the run |
 
 This is Airflow **3**. The DAG imports from `airflow.sdk` and `airflow.providers.standard`, and the schedule is a `CronDataIntervalTimetable`. A plain cron string would make `ds` the day of the run in Airflow 3, so every run would load one day too late.
 
@@ -64,7 +64,6 @@ How it works:
 - The code (`src/stylehub` and `dbt`) and the DAG (`dags/`) are copied into the image. The whole project is **not** mounted,
   so Airflow cannot read your `.git` or other files. After a code change, rebuild: `... up -d --build`.
 - Only `secrets/` is mounted, read-only. The key file named in `secrets/.env` must be inside `secrets/`.
-- Logs live in the `stylehub-logs` volume.
 
 ## Run old days (backfill)
 
@@ -95,10 +94,10 @@ Install the pipeline first in `STYLEHUB_HOME`: `uv sync --extra dbt`.
 
 - `ds` is the day being processed. The run at 02:00 on the 15th loads the 14th.
 - `retries` is 1. Each task has a 2 hour timeout.
-- Alerts: the Python tasks run with `alert=False` and the DAG sends one alert itself (`on_failure_callback`, needs `ALERT_WEBHOOK_URL`). This also covers a task that is killed or times out, where `run_step` never gets to send anything. So you get one alert per failure, not two.
+- Monitoring: every attempt is saved in `pipeline_runs`; the Streamlit page (`--profile serving`) shows it.
 - The service account key stays in `secrets/` (git ignores it). Never put keys in the DAG file.
 - Airflow runs all day. Stop it (`down`) when you are not using it. A VM costs money while it runs.
 - Verified (2026-10-16): the Docker image builds (about 21 minutes the first time), `up -d` starts the five containers (`airflow-init` exits with 0 and the API server turns healthy), and `airflow dags test stylehub_daily 2026-10-15` ran all six tasks to success on real GCS and BigQuery (Silver 50/50, Gold 38/38). In a real `apache-airflow==3.3.2` install the DAG also loads without errors, the task order, the operators and the timetable are right (the run of the 15th has `ds` = the 14th), and the DAG tests pass.
-- Not verified: a run started by the scheduler itself at 02:00 UTC, the login with the Simple Auth Manager password file, and the Discord alert (the test ran with `--no-alert`). The log shows `No module named 'pendulum'` before each Python task. The tasks still pass, so it looks harmless, but the cause is not checked. The base image is pinned by digest (`3.3.2-python3.12`, read on 2026-10-16).
+- Not verified: a run started by the scheduler itself at 02:00 UTC, the login with the Simple Auth Manager password file. The log shows `No module named 'pendulum'` before each Python task. The tasks still pass, so it looks harmless, but the cause is not checked. The base image is pinned by digest (`3.3.2-python3.12`, read on 2026-10-16).
 - Airflow 3 login: one admin user from `AIRFLOW_ADMIN_USER` and `AIRFLOW_ADMIN_PASSWORD` (the Simple
   Auth Manager). It is meant for a local container. For a shared server, use another auth manager.

@@ -1,7 +1,7 @@
-"""Create the GCS bucket and the BigQuery datasets (session 1, exercise 1).
+"""Create the GCS bucket and the BigQuery datasets. Run once by hand.
 
-Safe to run again: anything that already exists is left alone. New ones are created in
-GCP_LOCATION. The bucket and the datasets should share one location, or loads between them fail.
+Safe to run again: anything that already exists is left alone. Everything is created in
+GCP_LOCATION, so loads between the bucket and the datasets work.
 
 Usage: python -m stylehub.setup.setup_gcp [--dry-run]
 """
@@ -12,6 +12,7 @@ import logging
 import google.cloud.storage as storage
 from google.cloud import bigquery
 
+from stylehub.common.clients import bq_client, gcs_client
 from stylehub.common.config import SQL_DIR, Settings, settings
 from stylehub.common.logs import setup_cli_logging
 from stylehub.common.sql import render_sql
@@ -22,34 +23,6 @@ log = logging.getLogger(__name__)
 def dataset_ids(cfg: Settings) -> list[str]:
     """Course source dataset first, then the layers (staging holds personal data) and ops."""
     return [cfg.source, cfg.bronze, cfg.staging, cfg.silver, cfg.gold, cfg.ops]
-
-
-# Raw keeps a full copy of the source every day, so without a rule it only grows. Old copies of a
-# file (versioning) and old daily batches are deleted. A person's data therefore leaves Raw after
-# at most RAW_RETENTION_DAYS + NONCURRENT_RETENTION_DAYS days (see docs/design/DECISIONS.md).
-RAW_RETENTION_DAYS = 90
-NONCURRENT_RETENTION_DAYS = 30
-
-
-def ensure_lifecycle(bucket: storage.Bucket, raw_prefix: str) -> bool:
-    """Add the delete rules if the bucket does not have them. Return True if it changed them."""
-    rules = [dict(rule) for rule in bucket.lifecycle_rules]
-    wanted = [
-        {
-            "action": {"type": "Delete"},
-            "condition": {"daysSinceNoncurrentTime": NONCURRENT_RETENTION_DAYS},
-        },
-        {
-            "action": {"type": "Delete"},
-            "condition": {"age": RAW_RETENTION_DAYS, "matchesPrefix": [f"{raw_prefix}/"]},
-        },
-    ]
-    missing = [rule for rule in wanted if rule not in rules]
-    if not missing:
-        return False
-    bucket.lifecycle_rules = rules + missing
-    bucket.patch()
-    return True
 
 
 def ensure_bucket(client: storage.Client, name: str, location: str) -> bool:
@@ -94,20 +67,17 @@ def main() -> None:
 
     if args.dry_run:
         log.info(f"Would make sure this exists in {cfg.location} (project {cfg.project}):")
-        log.info(f"  bucket   gs://{cfg.bucket} (delete rules: Raw {RAW_RETENTION_DAYS} days)")
+        log.info(f"  bucket   gs://{cfg.bucket}")
         for dataset_id in dataset_ids(cfg):
             log.info(f"  dataset  {dataset_id}")
         log.info("  table    pipeline_runs (src/stylehub/sql/ops/)")
         return
 
-    storage_client = storage.Client(project=cfg.project)
+    storage_client = gcs_client(cfg)
     created = ensure_bucket(storage_client, cfg.bucket, cfg.location)
     log.info(f"bucket   gs://{cfg.bucket}: {'created' if created else 'already exists'}")
-    bucket = storage_client.get_bucket(cfg.bucket)
-    changed = ensure_lifecycle(bucket, cfg.raw_prefix)
-    log.info(f"lifecycle gs://{cfg.bucket}: {'rules added' if changed else 'rules already there'}")
 
-    bigquery_client = bigquery.Client(project=cfg.project)
+    bigquery_client = bq_client(cfg)
     for dataset_id in dataset_ids(cfg):
         ensure_dataset(bigquery_client, dataset_id, cfg.location)
         log.info(f"dataset  {dataset_id}: ready")

@@ -1,7 +1,7 @@
 name: CD
 
 # Publish the Docker image after CI passed on main. The VM pulls the new image by itself
-# (see docs/ops/CD.md). GitHub never connects to the VM, so no SSH key and no open firewall port.
+# (see the CD section of README.md). GitHub never connects to the VM, so no SSH key and no open firewall port.
 #
 # CD does not build. It takes the image that CI built, scanned and tested (the artifact
 # "pipeline-image" of the same CI run) and pushes that. Only one tag is pushed: the commit id.

@@ -18,8 +18,7 @@ FROM apache/airflow:3.3.2-python3.12@sha256:9df9c8be4096b9cc626bd7cb1f2b8c712eef
 ARG UV_VERSION=0.12.13
 
 USER root
-# logs/ is where pipeline_runs rows wait when BigQuery is down (a volume is mounted on it).
-RUN mkdir -p /opt/venv /opt/stylehub/logs && chown -R airflow /opt/venv /opt/stylehub
+RUN mkdir -p /opt/venv /opt/stylehub && chown -R airflow /opt/venv /opt/stylehub
 USER airflow
 
 RUN pip install --no-cache-dir "uv==${UV_VERSION}"

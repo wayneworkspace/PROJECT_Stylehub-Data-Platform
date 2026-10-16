@@ -1,142 +1,42 @@
-"""Notice when the source changes its columns, before the data reaches the Raw Zone (session 2).
+"""Notice when the source changes its columns, before the data reaches the Raw Zone.
 
-The source team can add, drop, rename or retype a column and tell nobody. A pipeline that
-does not look will stay green and quietly give wrong numbers.
+The source team can add, drop, rename or retype a column and tell nobody. A pipeline that does
+not look stays green and quietly gives wrong numbers.
 
-EXPECTED_SCHEMAS lists the columns that the Silver models (dbt/models/staging/) need,
-with a simple type: int, number (decimal or float), text, datetime.
-How each kind of change is handled:
+The expected columns are listed once, in the dbt sources file (_stylehub__sources.yaml), with a
+simple type: int, number (decimal or float), text, datetime.
 
-| Change         | What it means                      | Reaction                                 |
-|----------------|------------------------------------|------------------------------------------|
-| New column     | Usually safe, nothing reads it yet | Warning only                             |
-| Removed column | Silver or Gold may break           | fail: stop. absorb: fill NULL + warn     |
-| Renamed column | Looks like one removed + one new   | Same as removed (the message says so)    |
-| Type changed   | Casts and sums may break           | fail: stop. absorb: let it pass + warn   |
-
-Check the expected columns against the real source before the first run on real data.
+| Change         | Reaction                                           |
+|----------------|----------------------------------------------------|
+| New column     | Warning only: nothing reads it yet                 |
+| Removed column | Stop (a rename looks like one removed + one new)   |
+| Type changed   | Stop: casts and sums may break                     |
 """
 
 import logging
 from collections.abc import Iterable
-from dataclasses import dataclass, field
-from typing import Any, Literal
+from functools import cache
+from typing import Any
 
 import pandas as pd
+import yaml
+
+from stylehub.common.config import DBT_DIR
 
 log = logging.getLogger(__name__)
 
-OnChange = Literal["fail", "absorb"]
-ON_CHANGE_CHOICES = ("fail", "absorb")
+SOURCES_FILE = DBT_DIR / "models" / "staging" / "stylehub" / "_stylehub__sources.yaml"
 
-EXPECTED_SCHEMAS: dict[str, dict[str, str]] = {
-    "orders": {
-        "order_id": "int",
-        "user_id": "int",
-        "status": "text",
-        "created_at": "datetime",
-        "shipped_at": "datetime",
-        "delivered_at": "datetime",
-        "returned_at": "datetime",
-        "num_of_item": "int",
-    },
-    "order_items": {
-        "id": "int",
-        "order_id": "int",
-        "user_id": "int",
-        "product_id": "int",
-        "status": "text",
-        "created_at": "datetime",
-        "shipped_at": "datetime",
-        "delivered_at": "datetime",
-        "returned_at": "datetime",
-        "sale_price": "number",
-    },
-    "products": {
-        "id": "int",
-        "name": "text",
-        "category": "text",
-        "brand": "text",
-        "department": "text",
-        "sku": "text",
-        "cost": "number",
-        "retail_price": "number",
-    },
-    "users": {
-        "id": "int",
-        "email": "text",
-        "age": "int",
-        "gender": "text",
-        "state": "text",
-        "city": "text",
-        "country": "text",
-        "latitude": "number",
-        "longitude": "number",
-        "traffic_source": "text",
-        "created_at": "datetime",
-    },
-}
+
+@cache
+def expected_schemas() -> dict[str, dict[str, str]]:
+    """{table: {column: type}} from the dbt sources file. Tables with no columns are not checked."""
+    tables = yaml.safe_load(SOURCES_FILE.read_text(encoding="utf-8"))["sources"][0]["tables"]
+    return {t["name"]: {c["name"]: c["data_type"] for c in t.get("columns", [])} for t in tables}
 
 
 class SchemaError(Exception):
     """The source columns no longer match what the pipeline expects."""
-
-
-@dataclass(frozen=True)
-class SchemaDiff:
-    added: list[str] = field(default_factory=list)  # in the data, not expected
-    removed: list[str] = field(default_factory=list)  # expected, not in the data
-    retyped: dict[str, tuple[str, str]] = field(default_factory=dict)  # column -> (expected, found)
-
-    @property
-    def is_breaking(self) -> bool:
-        return bool(self.removed or self.retyped)
-
-    def describe(self) -> str:
-        lines = []
-        if self.removed:
-            lines.append(f"missing columns: {', '.join(self.removed)}")
-        if self.retyped:
-            changes = [f"{c} ({want} -> {got})" for c, (want, got) in self.retyped.items()]
-            lines.append(f"type changes: {', '.join(changes)}")
-        if self.added:
-            lines.append(f"new columns: {', '.join(self.added)}")
-        if self.removed and self.added:
-            lines.append("a renamed column looks like one missing plus one new column")
-        return "; ".join(lines)
-
-
-# pandas names -> our simple names. A name that is not here (for example "mixed") is kept as it is.
-KIND_NAMES = {
-    "boolean": "bool",
-    "integer": "int",
-    "floating": "number",
-    "decimal": "number",
-    "mixed-integer-float": "number",
-    "string": "text",
-    "datetime": "datetime",
-    "datetime64": "datetime",
-}
-
-
-def column_kind(series: pd.Series) -> str | None:
-    """Name the kind of a column. Return None when there is no value to look at."""
-    if series.dropna().empty:
-        return None
-    inferred = pd.api.types.infer_dtype(series, skipna=True)  # looks at every value
-    return KIND_NAMES.get(inferred, inferred)
-
-
-def diff_schema(df: pd.DataFrame, expected: dict[str, str]) -> SchemaDiff:
-    removed = [col for col in expected if col not in df.columns]
-    added = [col for col in df.columns if col not in expected]
-    retyped = {}
-    for col, want in expected.items():
-        if col in df.columns:
-            got = column_kind(df[col])
-            if got is not None and got != want:  # None = empty column, nothing to compare
-                retyped[col] = (want, got)
-    return SchemaDiff(added=added, removed=removed, retyped=retyped)
 
 
 # BigQuery column types -> our simple names. A type that is not here (for example DATE) is not
@@ -154,32 +54,39 @@ BQ_KIND_NAMES = {
 }
 
 
-def check_declared_schema(
-    table: str, fields: Iterable[Any], on_change: OnChange = "fail"
-) -> SchemaDiff | None:
-    """Compare the columns that the source table DECLARES with the expected schema.
+def check_declared_schema(table: str, fields: Iterable[Any], on_change: str = "fail") -> None:
+    """Compare the columns the source table DECLARES with the expected schema.
 
-    This reads table metadata only, so a changed source stops the run BEFORE gigabytes are read
-    into memory. `fields` are BigQuery schema fields (name, field_type). Only on_change="fail"
-    raises. The check on the real values (enforce_schema) still runs later. Return the diff, or
-    None for a table that has no expected schema.
+    This reads table metadata only, so a changed source stops the run BEFORE any row is read.
+    `fields` are BigQuery schema fields (name, field_type). A table with no expected schema
+    is not checked.
+
+    on_change="fail": a missing or retyped column stops the run.
+    on_change="absorb": a missing column only warns (add_missing_columns fills it with NULL). A
+    new column always passes with a warning. A retyped column always stops the run.
     """
-    expected = EXPECTED_SCHEMAS.get(table)
-    if expected is None:
-        return None
+    expected = expected_schemas().get(table)
+    if not expected:
+        return
     declared = {f.name: BQ_KIND_NAMES.get(str(f.field_type).upper()) for f in fields}
-    diff = SchemaDiff(
-        added=[col for col in declared if col not in expected],
-        removed=[col for col in expected if col not in declared],
-        retyped={
-            col: (want, str(declared[col]))
-            for col, want in expected.items()
-            if declared.get(col) not in (None, want) and col in declared
-        },
-    )
-    if diff.is_breaking and on_change == "fail":
-        raise SchemaError(f"{table}: the source table changed: {diff.describe()}")
-    return diff
+    added = [col for col in declared if col not in expected]
+    removed = [col for col in expected if col not in declared]
+    retyped = [
+        f"{col} ({want} -> {declared[col]})"
+        for col, want in expected.items()
+        if declared.get(col) not in (None, want) and col in declared
+    ]
+    if added:
+        log.warning("%s: new columns in the source: %s", table, ", ".join(added))
+    problems = []
+    if removed and on_change == "absorb":
+        log.warning("%s: missing columns will be NULL: %s", table, ", ".join(removed))
+    elif removed:
+        problems.append(f"missing columns: {', '.join(removed)}")
+    if retyped:
+        problems.append(f"type changes: {', '.join(retyped)}")
+    if problems:
+        raise SchemaError(f"{table}: the source table changed: {'; '.join(problems)}")
 
 
 # The pandas type that gives an EMPTY column the type the source really has.
@@ -191,45 +98,19 @@ EMPTY_COLUMN_DTYPES = {
 }
 
 
-def type_empty_columns(df: pd.DataFrame, expected: dict[str, str]) -> pd.DataFrame:
-    """Give every expected column that holds no value its real type.
+def type_empty_columns(df: pd.DataFrame, table: str) -> pd.DataFrame:
+    """Give every expected column that holds only NULLs its real type.
 
-    diff_schema cannot compare an empty column (there is no value to look at), and Parquet writes
-    a column of only NULLs with the type "null". BigQuery then loads that day with another type
-    than the other days. With the expected type written down, every day has the same one.
-    Returns the same object when nothing needs to change.
+    Parquet writes a column of only NULLs with the type "null". BigQuery then loads that day with
+    another type than the other days. With the expected type written down, every day has the
+    same one. A table with no expected schema is returned as it is.
     """
-    empty = [c for c in expected if c in df.columns and column_kind(df[c]) is None]
-    if not empty:
-        return df
-    typed = df.copy()
-    for col in empty:
-        typed[col] = typed[col].astype(EMPTY_COLUMN_DTYPES[expected[col]])
-    return typed
+    expected = expected_schemas().get(table, {})
+    empty = [c for c in expected if c in df.columns and df[c].dropna().empty]
+    return df.astype({c: EMPTY_COLUMN_DTYPES[expected[c]] for c in empty}) if empty else df
 
 
-def enforce_schema(df: pd.DataFrame, table: str, on_change: OnChange = "fail") -> pd.DataFrame:
-    """Compare the columns with the expected schema. Return the data to write.
-
-    A table without an entry in EXPECTED_SCHEMAS is not checked.
-    """
-    if on_change not in ON_CHANGE_CHOICES:
-        raise ValueError(f"on_change must be one of {ON_CHANGE_CHOICES}, got: {on_change}")
-    expected = EXPECTED_SCHEMAS.get(table)
-    if expected is None:
-        return df
-
-    diff = diff_schema(df, expected)
-    if diff.added:
-        log.warning("%s: new columns in the source: %s", table, ", ".join(diff.added))
-    if not diff.is_breaking:
-        return type_empty_columns(df, expected)
-
-    if on_change == "fail":
-        raise SchemaError(f"{table}: the source schema changed: {diff.describe()}")
-
-    log.warning("%s: absorbing a schema change: %s", table, diff.describe())
-    absorbed = df.copy()
-    for col in diff.removed:
-        absorbed[col] = None
-    return type_empty_columns(absorbed, expected)
+def add_missing_columns(df: pd.DataFrame, table: str) -> pd.DataFrame:
+    """Add every expected column that the source no longer has, filled with NULL."""
+    missing = [c for c in expected_schemas().get(table, {}) if c not in df.columns]
+    return df.assign(**dict.fromkeys(missing)) if missing else df

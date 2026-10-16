@@ -6,10 +6,10 @@
 # release, and the digest of the base image (checked on 2026-10-16, Python 3.12.15). The digest is
 # the multi-platform index, so amd64 and arm64 both work. To read the digest of a tag again:
 #   docker buildx imagetools inspect python:3.12-slim-bookworm
-# Dependabot (.github/dependabot.yml) proposes new digests as pull requests.
 FROM python:3.12-slim-bookworm@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258
 
 ARG UV_VERSION=0.12.13
+ARG EXTRAS="--extra dbt"  # the dashboard builds this image with --extra serving
 
 ENV PYTHONUNBUFFERED=1 \
     UV_COMPILE_BYTECODE=1 \
@@ -19,12 +19,12 @@ WORKDIR /app
 
 RUN pip install --no-cache-dir "uv==${UV_VERSION}"
 
-# Do not run as root. logs/ is where pipeline_runs rows wait when BigQuery is down.
-RUN useradd --create-home app && mkdir -p /app/logs && chown app:app /app /app/logs
+# Do not run as root.
+RUN useradd --create-home app && chown app:app /app
 
 # Install dependencies first. Docker reuses this layer until pyproject.toml or uv.lock changes.
 COPY pyproject.toml uv.lock .python-version ./
-RUN uv sync --frozen --no-dev --extra dbt --no-install-project
+RUN uv sync --frozen --no-dev ${EXTRAS} --no-install-project
 
 # --chown here, not a recursive chown afterwards: that would copy every file into a new layer.
 COPY --chown=app:app src/stylehub ./src/stylehub

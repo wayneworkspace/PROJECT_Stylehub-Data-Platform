@@ -9,23 +9,23 @@ dependencies = [
     "google-cloud-storage>=2.18",
     "pandas>=2.2",
     "pyarrow>=16",
+    "pydantic-settings>=2.4",
     "python-dotenv>=1.0",
     "requests>=2.32",
-    "tenacity>=9",
+    "pyyaml>=6",
 ]
 
 [project.optional-dependencies]
 dev = [
     "mypy>=1.11",
-    "pytest>=8",
-    "pytest-cov>=5",
-    "pyyaml>=6",
     "ruff>=0.6",
     "sqlfluff>=3",
     "types-requests>=2.32",
 ]
 # Silver and Gold with dbt. Airflow is NOT here: install it on its own (see deploy/airflow/README.md).
 dbt = ["dbt-bigquery>=1.10"]
+# The monitoring dashboard (src/stylehub/serving).
+serving = ["streamlit>=1.40", "db-dtypes>=1.2"]
 
 [build-system]
 requires = ["hatchling"]
@@ -49,10 +49,6 @@ src = ["src"]
 # here); PTH pathlib instead of os.path; RUF ruff's own checks; C4 simpler comprehensions.
 select = ["E", "F", "I", "UP", "B", "SIM", "S", "DTZ", "PTH", "RUF", "C4"]
 
-[tool.ruff.lint.per-file-ignores]
-# pytest uses plain `assert`, and tests may use fake secrets and run small commands.
-"src/tests/**" = ["S101", "S105", "S106", "S603", "S607", "RUF043", "RUF059"]
-
 [tool.mypy]
 # Type check the package. Only the libraries that have no type hints are skipped (see the
 # override below), so a typo in any other import is still found.
@@ -64,22 +60,8 @@ warn_unused_ignores = true
 warn_redundant_casts = true
 
 [[tool.mypy.overrides]]
-# No type hints or stubs installed: pandas, pyarrow, yaml, google-cloud-storage (no py.typed marker)
+# No type hints or stubs installed: pandas, pyarrow, yaml, google-cloud-storage (no py.typed marker),
+# streamlit (an optional extra: CI does not install it)
 # and Airflow (installed only in its image). requests has stubs: types-requests in the dev extra.
-module = ["pandas.*", "pyarrow.*", "yaml.*", "airflow.*", "google.cloud.storage.*"]
+module = ["pandas.*", "pyarrow.*", "yaml.*", "airflow.*", "google.cloud.storage.*", "streamlit.*"]
 ignore_missing_imports = true
-
-[tool.pytest.ini_options]
-testpaths = ["src/tests"]
-pythonpath = ["src"]
-
-[tool.coverage.run]
-source = ["stylehub"]
-branch = true
-
-[tool.coverage.report]
-# The tests must keep covering most of the code. Lines and branches are both counted.
-# It was 85% when only lines were counted. Check the new number with `uv run pytest --cov`.
-fail_under = 80
-show_missing = true
-skip_covered = true

@@ -1,12 +1,8 @@
-"""Copy the big events table from the course dataset to the Bronze dataset (one time).
+"""Copy the events table from the course dataset to the Bronze dataset (one time).
 
-The course dataset (`stylehub`) is in the US. Bronze is in the region of GCP_LOCATION
-(asia-southeast1). A BigQuery query cannot read one region and write to another, so the table
-is copied first with a copy job. The copy is stored as `<bronze>.events_raw`. After that, the SQL
-file src/stylehub/sql/bronze/01_events_partitioned.sql builds the partitioned table from it.
-
-A copy job across regions is free to run, but Google may charge for the data that crosses regions.
-Run it once. A second run replaces the copy.
+The course dataset is in another region than Bronze, and a query cannot read one region and write
+to another. So a copy job makes `<bronze>.events_raw`, and then
+src/stylehub/sql/bronze/01_events_partitioned.sql builds the partitioned table from it.
 
 Usage: python -m stylehub.bronze.copy_events
 """
@@ -17,7 +13,9 @@ from functools import partial
 from google.api_core.exceptions import NotFound
 from google.cloud import bigquery
 
+from stylehub.common.clients import bq_client
 from stylehub.common.config import Settings, resolve
+from stylehub.common.logs import setup_cli_logging
 from stylehub.common.retry import call_with_retry
 
 log = logging.getLogger(__name__)
@@ -29,7 +27,7 @@ TARGET_TABLE = "events_raw"
 def copy_events(client: bigquery.Client | None = None, cfg: Settings | None = None) -> int:
     """Copy the table. Return the number of rows in the copy. Pass `client` to use your own."""
     cfg = resolve(cfg)
-    client = client or bigquery.Client(project=cfg.project)
+    client = client or bq_client(cfg)
     source_id = f"{cfg.project}.{cfg.source}.{SOURCE_TABLE}"
     target_id = f"{cfg.project}.{cfg.bronze}.{TARGET_TABLE}"
     source_location = client.get_dataset(f"{cfg.project}.{cfg.source}").location
@@ -52,7 +50,7 @@ def copy_events(client: bigquery.Client | None = None, cfg: Settings | None = No
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    setup_cli_logging()
     log.info("%s: %s rows copied", TARGET_TABLE, f"{copy_events():,}")
 
 

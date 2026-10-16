@@ -10,29 +10,25 @@ is split in two:
 - ingest and bronze are Python code. They run with ExternalPythonOperator: Airflow calls the
   function run_python_step() inside the pipeline environment (/opt/venv/stylehub).
 - silver and gold start dbt. They run with BashOperator, which starts the same command you can
-  run by hand (run_daily calls dbt, saves the run in pipeline_runs and sends the alert):
+  run by hand (run_daily calls dbt, saves the run in pipeline_runs):
 
     python -m stylehub.orchestration.run_daily --date 2026-10-01 --from-step silver --to-step silver
         [--run-id <the Airflow run id>]
 
-Alerts: run_daily is started with --no-alert, so a failed attempt is recorded in pipeline_runs but
-sends no message. The DAG sends ONE message itself (alert_on_failure) when a task has failed for
-good, after its retries. This also catches a task that was killed (out of memory, SIGKILL), where
-run_daily never gets the chance to write or alert anything.
+Monitoring: every attempt is recorded in pipeline_runs. The Streamlit dashboard in
+src/stylehub/serving shows it.
+
+Backfill (old days, on purpose): airflow dags backfill stylehub_daily -s 2026-10-01 -e 2026-10-07
 
 Settings (environment variables of the Airflow machine):
     STYLEHUB_HOME     project folder, where pyproject.toml lives (default /opt/stylehub)
     STYLEHUB_PYTHON   Python of the pipeline environment (default /opt/venv/stylehub/bin/python)
     STYLEHUB_RUN      command prefix that starts Python in the project environment, used by the
                       dbt tasks (default "uv run")
-    ALERT_WEBHOOK_URL Discord webhook for alert_on_failure (a secret; empty = no alert)
 """
 
-import json
 import os
-import urllib.request
 from datetime import UTC, datetime, timedelta
-from typing import Any
 
 # Airflow 3: the DAG API moved to the Task SDK (airflow.sdk) and the operators to the "standard"
 # provider (airflow.providers.standard). The Airflow 2 paths no longer exist.
@@ -61,11 +57,11 @@ def run_python_step(data_date: str, step: str, project_home: str, run_id: str) -
     import sys
 
     sys.path.insert(0, f"{project_home}/src")
+    from stylehub.common.logs import PIPELINE_FORMAT, setup_cli_logging
     from stylehub.orchestration import run_daily
 
-    run_daily.setup_logging()  # without this the INFO lines of the step are lost
-    # alert=False: the DAG sends the alert (alert_on_failure), so a retry sends no second message.
-    run_daily.run_steps(data_date, step, step, run_id=run_id, alert=False)
+    setup_cli_logging(PIPELINE_FORMAT)  # without this the INFO lines of the step are lost
+    run_daily.run_steps(data_date, step, step, run_id=run_id)
 
 
 def dbt_command(step: str) -> str:
@@ -74,37 +70,8 @@ def dbt_command(step: str) -> str:
     return (
         f"cd {PROJECT_HOME} && PYTHONPATH={PROJECT_HOME}/src "
         f"{RUN_PREFIX} python -m stylehub.orchestration.run_daily "
-        f"--date {{{{ ds }}}} --from-step {step} --to-step {step} --run-id '{{{{ run_id }}}}' "
-        "--no-alert"
+        f"--date {{{{ ds }}}} --from-step {step} --to-step {step} --run-id '{{{{ run_id }}}}'"
     )
-
-
-def alert_on_failure(context: dict[str, Any]) -> None:
-    """One Discord message when a task failed for good (all retries used). Never raises.
-
-    It uses only the standard library: the Airflow environment has no pipeline packages.
-    The webhook URL is a secret, so it is never printed.
-    """
-    url = os.environ.get("ALERT_WEBHOOK_URL", "").strip()
-    if not url:
-        return
-    task = context["task_instance"]
-    text = (
-        "StyleHub pipeline FAILED (Airflow)\n"
-        f"task: {task.task_id}\ndate: {context.get('ds')}\nrun: {context.get('run_id')}\n"
-        f"tries: {task.try_number}\nerror: {context.get('exception')}"
-    )[:1900]  # Discord rejects messages over 2000 characters
-    if not url.startswith("https://"):  # urlopen would also open file: and custom schemes
-        return
-    request = urllib.request.Request(  # noqa: S310 - https only, checked above
-        url,
-        data=json.dumps({"content": text}).encode("utf-8"),
-        headers={"Content-Type": "application/json", "User-Agent": "stylehub-airflow"},
-    )
-    try:
-        urllib.request.urlopen(request, timeout=10).close()  # noqa: S310 - https only
-    except Exception as exc:  # an alert problem must not hide the real failure
-        print(f"Could not send the alert ({type(exc).__name__})")
 
 
 default_args = {
@@ -113,8 +80,6 @@ default_args = {
     "retry_delay": timedelta(minutes=5),
     # A stuck task must not hold the DAG for hours (max_active_runs=1 would block tomorrow too).
     "execution_timeout": timedelta(hours=2),
-    # Runs once, after the last retry. This is the alert, also for a killed task.
-    "on_failure_callback": alert_on_failure,
 }
 
 with DAG(

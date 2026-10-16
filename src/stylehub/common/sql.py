@@ -1,6 +1,5 @@
 """Fill the placeholders of a SQL file: ${project}, ${bronze}, ${silver}, ${gold}, ${ops}, ..."""
 
-from dataclasses import asdict
 from pathlib import Path
 from string import Template
 
@@ -12,4 +11,4 @@ def render_sql(path: Path, cfg: Settings | None = None) -> str:
 
     A placeholder that has no setting raises KeyError, so a typo is found before BigQuery runs it.
     """
-    return Template(path.read_text(encoding="utf-8")).substitute(asdict(resolve(cfg)))
+    return Template(path.read_text(encoding="utf-8")).substitute(resolve(cfg).model_dump())

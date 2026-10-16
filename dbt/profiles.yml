@@ -10,7 +10,7 @@
 stylehub:
   target: dev
   outputs:
-    dev: &bigquery
+    dev: &bigquery  # &bigquery names these settings; prod below reuses them with <<: *bigquery
       type: bigquery
       # Application Default Credentials: the key file in GOOGLE_APPLICATION_CREDENTIALS, your
       # gcloud login, the VM's service account, or Workload Identity in CI. One setting for all.

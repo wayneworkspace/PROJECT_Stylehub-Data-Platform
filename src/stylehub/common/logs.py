@@ -3,7 +3,9 @@
 import logging
 import sys
 
+PIPELINE_FORMAT = "%(asctime)s %(levelname)s %(message)s"  # the pipeline steps also show the time
 
-def setup_cli_logging() -> None:
+
+def setup_cli_logging(fmt: str = "%(message)s") -> None:
     """Make log.info(...) show up in the terminal, like the print calls it replaces."""
-    logging.basicConfig(stream=sys.stdout, level=logging.INFO, format="%(message)s")
+    logging.basicConfig(stream=sys.stdout, level=logging.INFO, format=fmt)
