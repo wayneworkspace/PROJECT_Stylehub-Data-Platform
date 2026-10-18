@@ -2,7 +2,7 @@
 
 How to set up the StyleHub project once and run it every day. Commands are `bash` (Git Bash) from the project folder.
 
-Detailed commands for each tool: `AIRFLOW.md`, `DOCKER.md`, `PYTHON.md`, `DBT.md`, `TERRAFORM.md`. Error messages and fixes: `ERRORS.md`.
+Error messages and fixes: `ERRORS.md`. Longer per-tool guides live only on the operator's machine (`docs/` is git-ignored except these three files).
 
 ## 1. Set up the project (once)
 
@@ -54,7 +54,17 @@ TF_STATE_BUCKET=dehehe-510014-tfstate infra/scripts/deploy.sh plan    # expect 0
 terraform -chdir=infra/terraform apply tfplan
 ```
 
-Then set the GitHub variables (`TERRAFORM.md` section 2). For resources made before Terraform, add `import` blocks for the first apply and delete them afterwards.
+Then set the GitHub variables that the workflows read:
+
+```bash
+terraform -chdir=infra/terraform output -json github_variables | uv run python -c "
+import json, subprocess, sys
+for k, v in json.load(sys.stdin).items(): subprocess.run(['gh', 'variable', 'set', k, '--body', v], check=True)"
+gh variable set GCS_BUCKET_LOCATION --body ASIA
+gh variable set BQ_SOURCE_LOCATION --body US
+```
+
+For resources made before Terraform, add `import` blocks for the first apply and delete them afterwards.
 
 ### 1.4 One-time data loads
 
@@ -77,7 +87,7 @@ docker compose --env-file secrets/.env --profile airflow --profile serving ps   
 | Airflow | `http://localhost:<AIRFLOW_WEB_PORT>` | `AIRFLOW_ADMIN_USER` / `AIRFLOW_ADMIN_PASSWORD` |
 | Dashboard | `http://localhost:8501` | none (localhost only) |
 
-Unpause `stylehub_daily` in the Airflow UI (or `airflow dags unpause stylehub_daily`, see `AIRFLOW.md`).
+Unpause `stylehub_daily` in the Airflow UI (or `MSYS_NO_PATHCONV=1 docker compose --env-file secrets/.env --profile airflow exec -T airflow-scheduler airflow dags unpause stylehub_daily`).
 
 ## 2. Daily operation
 
@@ -100,7 +110,7 @@ The laptop must be on and Docker running at 02:00 UTC. The DAG has `catchup=Fals
 1. Open the failed task log in the Airflow UI, or `logs/airflow/dag_id=stylehub_daily/run_id=<run>/task_id=<task>/attempt=<n>.log`.
 2. Find the message in `ERRORS.md` and apply the fix.
 3. If you changed code: `docker compose --env-file secrets/.env --profile airflow up -d --build`.
-4. Clear the failed task (UI **Clear**, or REST in `AIRFLOW.md` section 4); tasks after it run again.
+4. Clear the failed task with **Clear** in the UI (Grid view, click the task); tasks after it run again. The CLI `airflow tasks clear` does not match runs of this DAG on Airflow 3.3.2.
 
 Every step is safe to rerun: Raw is append-only, Bronze replaces its day partition, dbt rebuilds tables.
 
@@ -153,4 +163,4 @@ docker compose --env-file secrets/.env --profile airflow --profile serving up -d
 | Key file leaked | Disable the key in IAM, create a new one, replace it in `secrets/` |
 | Wrong numbers in Gold | Fix the model, rerun `silver`/`gold` (or `pg_silver`/`pg_gold`); Bronze keeps every load |
 | Bad Raw file | Raw is append-only; the next run writes a new batch and Bronze reads the newest |
-| Terraform plan wants to destroy | Stop; check `terraform.tfvars` locations and `TERRAFORM.md` section 4 |
+| Terraform plan wants to destroy | Stop; check `bucket_location = "ASIA"` and `source_location = "US"` in `terraform.tfvars` |
