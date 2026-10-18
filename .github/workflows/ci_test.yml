@@ -1,0 +1,130 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency: # a new commit cancels the older run
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Actions are pinned to commit ids; the comment names the version.
+env:
+  PYTHON_VERSION: "3.13"
+  UV_VERSION: "0.12.13"
+  TERRAFORM_VERSION: "1.16.5"
+
+jobs:
+  pre-commit:
+    name: Pre-commit checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Ruff, gitleaks and file checks
+        run: uvx pre-commit run --all-files --show-diff-on-failure
+
+  test:
+    name: Tests, dbt, SQL
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+      - name: Install dependencies from the lock file
+        run: uv sync --frozen --extra dev --extra dbt --extra serving
+      - name: Unit tests with 100% coverage
+        run: uv run pytest -q
+      - name: requirements.txt matches uv.lock
+        run: |
+          uv export --frozen --no-hashes --no-dev --extra dbt --no-emit-project -o requirements.txt
+          git diff --exit-code requirements.txt
+      - name: dbt parse (no BigQuery connection)
+        run: uv run dbt parse --project-dir dbt_project --profiles-dir dbt_project --log-path logs/dbt
+        env:
+          GCP_PROJECT_ID: ci-dummy-project
+          GCS_BUCKET: ci-dummy-bucket
+      - name: SQL lint
+        run: uv run sqlfluff lint dbt_project/models dbt_project/macros dbt_project/tests include/sql
+
+  terraform:
+    name: Terraform fmt, validate, plan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # short-lived Google token for plan
+    env:
+      TF_VAR_project_id: ${{ vars.GCP_PROJECT_ID }}
+      TF_VAR_region: ${{ vars.GCP_REGION }}
+      TF_VAR_bucket_name: ${{ vars.GCS_BUCKET }}
+      TF_VAR_bucket_location: ${{ vars.GCS_BUCKET_LOCATION }}
+      TF_VAR_source_location: ${{ vars.BQ_SOURCE_LOCATION }}
+      TF_VAR_state_bucket: ${{ vars.TF_STATE_BUCKET }}
+      TF_VAR_github_repository: ${{ github.repository }}
+      TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+      - name: fmt and validate (no cloud access)
+        run: |
+          terraform -chdir=infra/terraform fmt -check -recursive
+          terraform -chdir=infra/terraform init -backend=false -input=false
+          terraform -chdir=infra/terraform validate
+      # Plan needs the plan account; forks and repos without it skip this.
+      - name: Log in to Google Cloud for plan
+        id: auth
+        if: >-
+          vars.WIF_PLAN_SERVICE_ACCOUNT != '' &&
+          (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.WIF_PLAN_SERVICE_ACCOUNT }}
+      - name: terraform plan (review it in the pull request)
+        if: steps.auth.outcome == 'success'
+        run: bash infra/scripts/deploy.sh plan
+
+  docker:
+    name: Docker images
+    runs-on: ubuntu-latest
+    env:
+      AIRFLOW_IMAGE: stylehub-airflow:${{ github.sha }}
+      DASHBOARD_IMAGE: stylehub-dashboard:${{ github.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: The compose file is valid
+        run: docker compose --profile airflow --profile serving config --quiet
+      - name: The dashboard image builds, imports, and is not root
+        run: |
+          docker build --pull --build-arg UV_VERSION="$UV_VERSION" -f Dockerfile.dashboard -t "$DASHBOARD_IMAGE" .
+          docker run --rm "$DASHBOARD_IMAGE" python -c "import streamlit, importlib; importlib.import_module('src.5_serving.eda')"
+          test "$(docker run --rm "$DASHBOARD_IMAGE" id -u)" != "0"
+      - name: The Airflow image builds and the DAG loads
+        run: |
+          docker build --pull --build-arg UV_VERSION="$UV_VERSION" -f Dockerfile -t "$AIRFLOW_IMAGE" .
+          docker run --rm -v "$PWD/tests:/opt/airflow/tests:ro" --entrypoint bash "$AIRFLOW_IMAGE" -c \
+            "pip install --quiet pytest && python -m pytest -q -p no:cacheprovider -o addopts='' /opt/airflow/tests/test_dag_integrity.py"
+      # On main, hand the tested Airflow image to CD; CD never rebuilds.
+      - name: Save the Airflow image for CD
+        if: github.event_name == 'push'
+        run: docker save "$AIRFLOW_IMAGE" | gzip > airflow-image.tar.gz
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        if: github.event_name == 'push'
+        with:
+          name: airflow-image
+          path: airflow-image.tar.gz
+          retention-days: 1
+          compression-level: 0 # already gzip

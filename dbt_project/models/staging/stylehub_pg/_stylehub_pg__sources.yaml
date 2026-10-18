@@ -1,0 +1,13 @@
+version: 2
+
+sources:
+  # Bronze pg_* tables, loaded incrementally from the course Postgres.
+  - name: stylehub_pg
+    database: "{{ env_var('GCP_PROJECT_ID') }}"
+    schema: "{{ env_var('BQ_BRONZE', 'stylehub_bronze') }}"
+    tables:
+      - name: pg_orders
+      - name: pg_order_items
+      - name: pg_products
+      - name: pg_shipments
+      - name: pg_users

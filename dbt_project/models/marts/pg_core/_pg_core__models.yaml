@@ -1,0 +1,62 @@
+version: 2
+
+# Silver marts for the Postgres branch; id tests check the grain.
+models:
+  - name: pg_dim_products
+    description: One row per product (grain).
+    columns:
+      - name: id
+        data_tests: [unique, not_null]
+
+  - name: pg_dim_users
+    description: One row per customer (grain). Email is an unsalted SHA-256 hash.
+    columns:
+      - name: id
+        data_tests: [unique, not_null]
+
+  - name: pg_fact_orders
+    description: One row per order (grain).
+    columns:
+      - name: order_id
+        data_tests: [unique, not_null]
+      - name: status
+        data_tests:
+          - not_null
+          - accepted_values:
+              # Error, not warning: a new status would count as revenue.
+              arguments:
+                values: [Processing, Shipped, Complete, Cancelled, Returned]
+      - name: user_id
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('pg_dim_users')
+                field: id
+              config:
+                severity: warn
+
+  - name: pg_fact_order_items
+    description: One row per order item (grain). amount = sale_price * quantity.
+    columns:
+      - name: id
+        data_tests: [unique, not_null]
+      - name: amount
+        data_tests: [not_null]
+      - name: order_id
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('pg_fact_orders')
+                field: order_id
+              config:
+                severity: warn
+      - name: total_cost
+        description: quantity * the product's cost today. NULL if the product is unknown.
+
+  - name: pg_fact_shipments
+    description: One row per shipment (grain). delivery_hours is NULL until delivered.
+    columns:
+      - name: shipment_id
+        data_tests: [unique, not_null]
+      - name: order_id
+        data_tests: [unique, not_null]

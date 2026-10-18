@@ -1,0 +1,461 @@
+"""Pipeline stages against fake GCS, BigQuery, Postgres and dbt; no cloud needed."""
+
+import io
+import os
+import sys
+from datetime import datetime
+from importlib import import_module
+from types import SimpleNamespace as NS
+from typing import ClassVar
+
+import pandas as pd
+import pytest
+from google.api_core import exceptions
+
+config = import_module("src.1_source.config")
+bq = import_module("src.1_source.bq")
+retry = import_module("src.1_source.retry")
+load_csv = import_module("src.1_source.load_csv")
+csv_tables = import_module("src.2_ingestion.csv_tables")
+pg_tables = import_module("src.2_ingestion.postgres_tables")
+raw_writer = import_module("src.2_ingestion.raw_writer")
+schema_check = import_module("src.2_ingestion.schema_check")
+events_bronze = import_module("src.3_storage.events_bronze")
+load_bronze = import_module("src.3_storage.load_bronze")
+runs = import_module("src.3_storage.runs")
+run_dbt = import_module("src.4_transform.run_dbt")
+run_daily = import_module("src.4_transform.run_daily")
+
+
+@pytest.fixture
+def cfg() -> config.Settings:
+    return config.Settings(
+        GCP_PROJECT_ID="proj", GCS_BUCKET="bucket", POSTGRES_URL="postgresql+psycopg2://u:p@h/db"
+    )
+
+
+def job(value: object = None, rows: int = 0) -> NS:
+    return NS(result=lambda: value, output_rows=rows)
+
+
+class FakeBQ:
+    """Records calls; tables maps table id to a table object."""
+
+    def __init__(self, tables: dict | None = None, frame: pd.DataFrame | None = None) -> None:
+        self.tables = tables or {}
+        self.frame = frame
+        self.calls: list[tuple] = []
+        self.loaded_rows = 0
+        self.query_rows: list[tuple] = []
+        self.copy_fails_in: set[str] = set()
+
+    def get_table(self, table_id: str) -> NS:
+        if table_id not in self.tables:
+            raise exceptions.NotFound(table_id)
+        return self.tables[table_id]
+
+    def get_dataset(self, dataset_id: str) -> NS:
+        return NS(location="US")
+
+    def query(self, sql: str, job_config: object = None) -> NS:
+        self.calls.append(("query", sql))
+        return (
+            NS(
+                result=lambda: None,
+                to_dataframe=lambda: self.frame,
+                __iter__=None,
+            )
+            if self.frame is not None
+            else FakeRows(self.query_rows)
+        )
+
+    def copy_table(self, source: str, target: str, job_config: object, location: str) -> NS:
+        self.calls.append(("copy", target, location))
+        if location in self.copy_fails_in:
+            raise exceptions.NotFound("no copy job here")
+        return job()
+
+    def load_table_from_uri(
+        self, uri: str, target: str, job_config: object, location: str | None = None
+    ) -> NS:
+        self.calls.append(("load", uri))
+        return job(rows=self.loaded_rows)
+
+    def load_table_from_json(self, rows: list, table: str) -> NS:
+        self.calls.append(("json", table, rows))
+        return job()
+
+    def create_table(self, table: object, exists_ok: bool) -> None:
+        self.calls.append(("create", table.table_id, table.time_partitioning.expiration_ms))
+
+    def delete_table(self, table_id: str, not_found_ok: bool) -> None:
+        self.calls.append(("delete", table_id))
+
+
+class FakeRows(list):
+    def result(self) -> None:
+        return None
+
+
+class FakeBlob:
+    def __init__(self, name: str, data: bytes = b"") -> None:
+        self.name = name
+        self.data = data
+
+    def upload_from_string(self, data: bytes, content_type: str) -> None:
+        self.data = data
+
+    def upload_from_filename(self, filename: str) -> None:
+        self.data = b"file"
+
+    def open(self, mode: str) -> io.BytesIO:
+        return io.BytesIO(self.data)
+
+
+class Listing(list):
+    prefixes: ClassVar[set[str]] = set()
+
+
+class FakeGCS:
+    def __init__(self, folders: set[str] | None = None, blobs: list | None = None) -> None:
+        self.folders = folders or set()
+        self.blobs = blobs or []
+        self.uploaded: dict[str, FakeBlob] = {}
+
+    def bucket(self, name: str) -> NS:
+        def blob(path: str) -> FakeBlob:
+            return self.uploaded.setdefault(path, FakeBlob(path))
+
+        return NS(name=name, blob=blob)
+
+    def list_blobs(self, bucket: str, prefix: str, delimiter: str | None = None) -> Listing:
+        listing = Listing(() if delimiter else self.blobs)
+        listing.prefixes = self.folders
+        return listing
+
+
+def parquet(rows: int) -> bytes:
+    return pd.DataFrame({"x": range(rows)}).to_parquet(index=False)
+
+
+# 1_source -------------------------------------------------------------------------------
+
+
+def test_settings_resolve_relative_key_path(tmp_path, monkeypatch) -> None:
+    env = tmp_path / ".env"
+    env.write_text(
+        "GCP_PROJECT_ID=p\nGCS_BUCKET=b\nGOOGLE_APPLICATION_CREDENTIALS=secrets/k.json\n"
+    )
+    monkeypatch.setattr(config, "ENV_FILE", env)
+    for name in ("GCP_PROJECT_ID", "GCS_BUCKET", "GOOGLE_APPLICATION_CREDENTIALS"):
+        monkeypatch.delenv(name, raising=False)
+    cfg = config.settings()
+    assert cfg.project == "p"
+    assert os.environ["GOOGLE_APPLICATION_CREDENTIALS"] == str(config.ROOT / "secrets/k.json")
+
+
+def test_clients_and_engine(cfg, monkeypatch) -> None:
+    monkeypatch.setattr(config.bigquery, "Client", lambda project: ("bq", project))
+    monkeypatch.setattr(config.storage, "Client", lambda project: ("gcs", project))
+    assert config.bq_client(cfg) == ("bq", "proj")
+    assert config.gcs_client(cfg) == ("gcs", "proj")
+    assert config.pg_engine(cfg).url.host == "h"
+    with pytest.raises(RuntimeError, match="POSTGRES_URL"):
+        config.pg_engine(config.Settings(GCP_PROJECT_ID="p", GCS_BUCKET="b", POSTGRES_URL=None))
+
+
+def test_bq_helpers(cfg, tmp_path) -> None:
+    assert bq.query_config(cfg).maximum_bytes_billed == cfg.max_bytes_billed
+    client = FakeBQ({"t": NS()})
+    assert bq.table_exists(client, "t")
+    assert not bq.table_exists(client, "missing")
+    sql = tmp_path / "q.sql"
+    sql.write_text("SELECT 1 FROM `${project}.${bronze}.t`")
+    assert bq.render_sql(sql, cfg) == "SELECT 1 FROM `proj.stylehub_bronze.t`"
+
+
+def test_retry_waits_on_short_errors_only(monkeypatch) -> None:
+    monkeypatch.setattr("time.sleep", lambda seconds: None)
+    calls = iter([exceptions.ServiceUnavailable("busy"), "ok"])
+
+    def flaky() -> str:
+        value = next(calls)
+        if isinstance(value, Exception):
+            raise value
+        return value
+
+    assert retry.call_with_retry(flaky) == "ok"
+    with pytest.raises(exceptions.NotFound):
+        retry.call_with_retry(lambda: (_ for _ in ()).throw(exceptions.NotFound("gone")))
+    reason = exceptions.BadRequest("x", errors=[{"reason": "rateLimitExceeded"}])
+    assert retry.is_transient(reason)
+
+
+def test_retry_gives_up_with_the_last_error(monkeypatch) -> None:
+    def gives_up(**kwargs: object):
+        def wrap(func):
+            def call():
+                raise exceptions.RetryError("timeout", cause=TimeoutError("late"))
+
+            return call
+
+        return wrap
+
+    monkeypatch.setattr(retry, "Retry", gives_up)
+    with pytest.raises(TimeoutError):
+        retry.call_with_retry(lambda: None)
+
+
+def test_load_csv_uploads_and_loads(cfg, tmp_path, monkeypatch) -> None:
+    with pytest.raises(SystemExit):
+        load_csv.find_csv_files(tmp_path)
+    (tmp_path / "orders.csv").write_text("id\n1\n")
+    gcs, client = FakeGCS(), FakeBQ({"proj.stylehub.orders": NS(num_rows=1, num_bytes=10)})
+    monkeypatch.setattr(config, "gcs_client", lambda cfg: gcs)
+    monkeypatch.setattr(config, "bq_client", lambda cfg: client)
+    monkeypatch.setattr(config, "settings", lambda: cfg)
+    monkeypatch.setattr(load_csv, "DEFAULT_CSV_DIR", tmp_path)
+    load_csv.main()
+    assert "landing/stylehub/orders.csv" in gcs.uploaded
+    assert client.calls[0][0] == "load"
+
+
+# 2_ingestion ----------------------------------------------------------------------------
+
+
+def test_schema_check_warns_and_fails() -> None:
+    expected = schema_check.expected_schemas()["orders"]
+    kinds = {"int": "INTEGER", "number": "FLOAT", "text": "STRING", "datetime": "TIMESTAMP"}
+    fields = [NS(name=c, field_type=kinds[k]) for c, k in expected.items()]
+    schema_check.check_declared_schema("orders", [*fields, NS(name="new", field_type="STRING")])
+    schema_check.check_declared_schema("no_such_table", [])
+    with pytest.raises(schema_check.SchemaError, match="missing columns"):
+        schema_check.check_declared_schema("orders", fields[1:])
+    retyped = [NS(name=fields[0].name, field_type="STRING"), *fields[1:]]
+    with pytest.raises(schema_check.SchemaError, match="type changes"):
+        schema_check.check_declared_schema("orders", retyped)
+    empty = pd.DataFrame({"order_id": [None, None]})
+    assert str(schema_check.type_empty_columns(empty, "orders")["order_id"].dtype) == "Int64"
+
+
+def csv_source(rows: int) -> NS:
+    expected = schema_check.expected_schemas()["orders"]
+    kinds = {"int": "INTEGER", "number": "FLOAT", "text": "STRING", "datetime": "TIMESTAMP"}
+    return NS(schema=[NS(name=c, field_type=kinds[k]) for c, k in expected.items()], num_rows=rows)
+
+
+def test_csv_ingest_writes_raw(cfg, monkeypatch) -> None:
+    frame = pd.DataFrame({"order_id": [1, 2]})
+    client, gcs = FakeBQ({"proj.stylehub.orders": csv_source(2)}, frame), FakeGCS()
+    monkeypatch.setattr(config, "bq_client", lambda cfg: client)
+    monkeypatch.setattr(config, "gcs_client", lambda cfg: gcs)
+    assert csv_tables.ingest_table("orders", "2020-01-01", cfg) == 2  # old date also warns
+    assert next(iter(gcs.uploaded)).startswith("raw/stylehub/orders/date=2020-01-01/")
+    with pytest.raises(ValueError, match="No CSV table"):
+        csv_tables.extract_full("events", cfg)
+    client.tables["proj.stylehub.orders"] = csv_source(5)
+    with pytest.raises(csv_tables.SourceRowMismatch):
+        csv_tables.extract_full("orders", cfg)
+
+
+class FakePg:
+    """Engine whose connection returns a count and read_sql chunks."""
+
+    def __init__(self, count: int) -> None:
+        self.count = count
+
+    def connect(self) -> "FakePg":
+        return self
+
+    def __enter__(self) -> "FakePg":
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        return None
+
+    def execution_options(self, **kwargs: object) -> "FakePg":
+        return self
+
+    def execute(self, query: object, params: dict) -> NS:
+        return NS(scalar_one=lambda: self.count)
+
+
+def test_postgres_incremental_ingest(cfg, monkeypatch) -> None:
+    bronze = "proj.stylehub_bronze.pg_orders"
+    client, gcs = FakeBQ({bronze: NS()}), FakeGCS()
+    client.query_rows = [(datetime.fromisoformat("2026-10-14T23:00"),)]
+    monkeypatch.setattr(config, "bq_client", lambda cfg: client)
+    monkeypatch.setattr(config, "gcs_client", lambda cfg: gcs)
+    monkeypatch.setattr(config, "pg_engine", lambda cfg: FakePg(2))
+    chunks = [pd.DataFrame({"id": [1]}), pd.DataFrame({"id": [2]})]
+    monkeypatch.setattr(pg_tables.pd, "read_sql", lambda *a, **k: iter(chunks))
+    assert pg_tables.ingest_table("orders", "2026-10-15", cfg) == 2
+    assert "_PARTITIONDATE < DATE '2026-10-15'" in client.calls[0][1]
+    assert next(iter(gcs.uploaded)).startswith("raw/stylehub/pg_orders/date=2026-10-15/")
+
+    monkeypatch.setattr(config, "pg_engine", lambda cfg: FakePg(0))
+    monkeypatch.setattr(pg_tables.pd, "read_sql", lambda *a, **k: iter([pd.DataFrame({"id": []})]))
+    client.tables.clear()  # first run: no Bronze table, full load
+    assert pg_tables.ingest_table("orders", "2026-10-15", cfg) == 0
+
+    monkeypatch.setattr(config, "pg_engine", lambda cfg: FakePg(9))
+    with pytest.raises(pg_tables.SourceRowMismatch):
+        pg_tables.extract("orders", None, datetime.fromisoformat("2026-10-16"), cfg)
+    with pytest.raises(ValueError, match="No Postgres table"):
+        pg_tables.extract("events", None, datetime.fromisoformat("2026-10-16"), cfg)
+
+
+# 3_storage ------------------------------------------------------------------------------
+
+
+def test_events_bronze_build(cfg, monkeypatch) -> None:
+    client = FakeBQ({"proj.stylehub_bronze.events_raw": NS(num_rows=108)})
+    client.copy_fails_in = {"asia-southeast1"}  # first region fails, then the source region
+    built = {"done": False}
+    monkeypatch.setattr(config, "bq_client", lambda cfg: client)
+    monkeypatch.setattr(config, "settings", lambda: cfg)
+    monkeypatch.setattr(events_bronze, "events_table_exists", lambda cfg: built["done"])
+    monkeypatch.setattr(events_bronze.retry, "call_with_retry", lambda func: func())
+
+    def fake_query(sql: str, job_config: object = None) -> NS:
+        built["done"] = True
+        return job()
+
+    client.query = fake_query
+    events_bronze.main()
+    assert ("delete", "proj.stylehub_bronze.events_raw") in client.calls
+    events_bronze.ensure_events_bronze(cfg)  # already there: nothing to do
+
+    client.copy_fails_in = {"asia-southeast1", "US"}
+    with pytest.raises(RuntimeError, match="either region"):
+        events_bronze.copy_events(client, cfg)
+
+
+def test_events_table_exists(cfg, monkeypatch) -> None:
+    monkeypatch.setattr(config, "bq_client", lambda cfg: FakeBQ())
+    assert not import_module("src.3_storage.events_bronze").events_table_exists(cfg)
+
+
+def test_load_day_write_audit_publish(cfg, monkeypatch) -> None:
+    prefix = "raw/stylehub/orders/date=2026-10-01/"
+    folders = {f"{prefix}batch_id=1/", f"{prefix}batch_id=2/"}
+    gcs = FakeGCS(folders, [FakeBlob("a.parquet", parquet(3))])
+    client = FakeBQ({"proj.stylehub_bronze._stg_orders": NS(schema=[])})
+    client.loaded_rows = 3
+    monkeypatch.setattr(config, "gcs_client", lambda cfg: gcs)
+    monkeypatch.setattr(config, "bq_client", lambda cfg: client)
+    assert load_bronze.load_day("orders", "2026-10-01", cfg, keep_days=None) == 3
+    assert ("create", "orders", None) in client.calls
+    assert ("copy", "proj.stylehub_bronze.orders$20261001", "asia-southeast1") in client.calls
+
+    client.tables["proj.stylehub_bronze.orders"] = NS()  # existing table: no create
+    client.loaded_rows = 2
+    with pytest.raises(load_bronze.RowCountMismatch):
+        load_bronze.load_day("orders", "2026-10-01", cfg)
+
+
+def test_load_day_without_batches(cfg, monkeypatch) -> None:
+    monkeypatch.setattr(config, "gcs_client", lambda cfg: FakeGCS())
+    assert load_bronze.load_day("orders", "2026-10-02", cfg) == 0
+
+
+def test_bronze_table_expiry_and_drop_staging(cfg) -> None:
+    client = FakeBQ({"stg": NS(schema=[]), "proj.ds.exists": NS()})
+    load_bronze.ensure_bronze_table(client, "proj.ds.exists", "stg", keep_days=30)
+    assert client.calls == []  # an existing table is left alone
+    load_bronze.ensure_bronze_table(client, "proj.ds.t", "stg", keep_days=30)
+    assert client.calls[-1] == ("create", "t", 30 * 24 * 3600 * 1000)
+
+    def broken(table_id: str, not_found_ok: bool) -> None:
+        raise exceptions.Forbidden("no")
+
+    client.delete_table = broken
+    load_bronze.drop_staging(client, "stg")  # only warns
+
+
+def test_record_run_writes_and_survives_errors(cfg, monkeypatch) -> None:
+    client = FakeBQ()
+    monkeypatch.setattr(config, "bq_client", lambda cfg: client)
+    now = datetime.now()  # noqa: DTZ005
+    runs.record_run("r", "ingest", "2026-10-01", "success", now, now, 1, None, {"a": 1}, cfg)
+    assert client.calls[0][1] == "proj.stylehub_ops.pipeline_runs"
+    monkeypatch.setattr(config, "bq_client", lambda cfg: (_ for _ in ()).throw(RuntimeError("x")))
+    runs.record_run("r", "ingest", "2026-10-01", "failed", now, now, None, "e", None, cfg)
+
+
+# 4_transform ----------------------------------------------------------------------------
+
+
+def dbt_result(*statuses: str) -> NS:
+    results = [
+        NS(node=NS(unique_id=f"model.m{i}"), status=NS(value=s)) for i, s in enumerate(statuses)
+    ]
+    return NS(results=results)
+
+
+def test_run_dbt_summary_and_errors(monkeypatch) -> None:
+    outcomes = iter(
+        [
+            NS(success=True, result=dbt_result("success", "warn"), exception=None),
+            NS(success=False, result=dbt_result(*["error"] * 7), exception=None),
+            NS(success=False, result=None, exception=RuntimeError("no profile")),
+        ]
+    )
+
+    class Runner:
+        def invoke(self, args: list[str]) -> NS:
+            return next(outcomes)
+
+    monkeypatch.setitem(sys.modules, "dbt.cli.main", NS(dbtRunner=Runner))
+    summary = run_dbt.run_dbt("silver")
+    assert summary == {"counts": {"success": 1, "warn": 1}, "warned": ["model.m1"]}
+    with pytest.raises(run_dbt.DbtError, match="and 2 more"):
+        run_dbt.run_dbt("gold")
+    with pytest.raises(run_dbt.DbtError, match="no profile"):
+        run_dbt.run_dbt("pg_silver")
+
+
+def test_run_daily_runs_every_step(cfg, monkeypatch) -> None:
+    recorded: list[tuple] = []
+    monkeypatch.setattr(config, "settings", lambda: cfg)
+    monkeypatch.setattr(run_daily.runs, "record_run", lambda *a: recorded.append((a[1], a[3])))
+    monkeypatch.setattr(run_daily.csv_tables, "ingest_table", lambda t, d, c: 1)
+    monkeypatch.setattr(run_daily.pg_tables, "ingest_table", lambda t, d, c: 2)
+    monkeypatch.setattr(run_daily.events_bronze, "events_table_exists", lambda c: True)
+    monkeypatch.setattr(run_daily.load_bronze, "load_day", lambda *a, **k: 3)
+    monkeypatch.setattr(run_daily.run_dbt, "run_dbt", lambda layer: {"layer": layer})
+    for step in run_daily.STEPS:
+        run_daily.run_step("2026-10-01", step, "run-1")
+    assert recorded == [(step, "success") for step in run_daily.STEPS]
+
+
+def test_run_daily_records_failures(cfg, monkeypatch) -> None:
+    recorded: list[tuple] = []
+    monkeypatch.setattr(config, "settings", lambda: cfg)
+    monkeypatch.setattr(run_daily.runs, "record_run", lambda *a: recorded.append(a[1:4]))
+    monkeypatch.setattr(run_daily.events_bronze, "events_table_exists", lambda c: False)
+    with pytest.raises(RuntimeError, match="events_partitioned is missing"):
+        run_daily.run_step("2026-10-01", "bronze", "run-2")
+    monkeypatch.setattr(run_daily.events_bronze, "events_table_exists", lambda c: True)
+    monkeypatch.setattr(run_daily.load_bronze, "load_day", lambda *a, **k: 0)
+    with pytest.raises(RuntimeError, match="no Raw file"):
+        run_daily.run_step("2026-10-01", "bronze", "run-3")
+    assert [(r[0], r[2]) for r in recorded] == [("bronze", "failed"), ("bronze", "failed")]
+
+
+# dags -----------------------------------------------------------------------------------
+
+
+def test_run_python_step_calls_run_daily(monkeypatch) -> None:
+    utils_dag = import_module("dags.utils_dag")
+    calls: list[tuple] = []
+    monkeypatch.setattr(run_daily, "run_step", lambda *a: calls.append(a))
+    utils_dag.run_python_step("2026-10-01", "ingest", str(config.ROOT), "run-9")
+    assert calls == [("2026-10-01", "ingest", "run-9")]
+
+
+def test_logger_is_set_up_once() -> None:
+    logger = import_module("src.utils.logger")
+    first = logger.get_logger("tests.once")
+    assert logger.get_logger("tests.once") is first
+    assert len(first.handlers) == 2

@@ -6,16 +6,29 @@ secrets/
 logs/
 *.json.key
 .idea/
-.ipynb_checkpoints/
-notebooks_backup/
-dbt/target/
-dbt/dbt_packages/
-dbt/logs/
-deploy/airflow/logs/
-airflow/logs/
+dbt_project/target/
+dbt_project/dbt_packages/
+dbt_project/logs/
 data/
 to_delete/
-dbt/.user.yml
+dbt_project/.user.yml
 
 .coverage*
+.pytest_cache/
 coverage.xml
+
+docs/syllabus
+CLAUDE.md
+RULES.md
+
+# Terraform: local working files and state never go to Git
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+tfplan
+docs/EDA
+docs/assets
+
+output/

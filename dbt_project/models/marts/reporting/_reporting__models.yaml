@@ -1,0 +1,54 @@
+version: 2
+
+# Gold tables; contracts fail builds on renamed or retyped columns.
+models:
+  - name: daily_revenue
+    description: >
+      Revenue per day. Orders with a status in revenue_excluded_statuses (Cancelled) are not
+      counted. revenue is gross: Returned orders are inside it.
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: order_date
+        data_type: date
+        description: The day the order was placed (UTC).
+        data_tests: [unique, not_null]
+      - name: n_orders
+        data_type: int64
+        data_tests: [not_null]
+      - name: revenue
+        data_type: numeric
+        description: Gross revenue, sum of the item prices of the counted orders.
+        data_tests: [not_null]
+      - name: returned_amount
+        data_type: numeric
+        description: The part of revenue that belongs to Returned orders.
+        data_tests: [not_null]
+      - name: net_revenue
+        data_type: numeric
+        description: revenue - returned_amount.
+        data_tests: [not_null]
+
+  - name: monthly_revenue_by_category
+    description: Revenue and profit per month and category (grain). Cancelled orders are not counted.
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: month
+        data_type: date
+        data_tests: [not_null]
+      - name: category
+        data_type: string
+        data_tests: [not_null]
+      - name: revenue
+        data_type: numeric
+        data_tests: [not_null]
+      - name: profit_at_current_cost
+        data_type: numeric
+        description: sale_price - the product's cost today, not on the sale day. An item without a cost adds 0.
+        data_tests: [not_null]
+      - name: n_items_without_cost
+        data_type: int64
+        description: Items whose product has no cost. They add 0 to profit_at_current_cost.

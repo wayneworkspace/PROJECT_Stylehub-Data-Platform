@@ -1,0 +1,66 @@
+version: 2
+
+# Bronze, loaded by src/3_storage/load_bronze.py; only staging reads it.
+sources:
+  - name: stylehub
+    description: The StyleHub shop tables as loaded into Bronze (one full snapshot per day).
+    # Freshness compares the newest _ingested_at with now.
+    config:
+      loaded_at_field: _ingested_at
+      freshness:
+        warn_after: {count: 2, period: day}
+        error_after: {count: 4, period: day}
+    database: "{{ env_var('GCP_PROJECT_ID') }}"
+    schema: "{{ env_var('BQ_BRONZE', 'stylehub_bronze') }}"
+    # The one expected column list; src/2_ingestion/schema_check.py reads it.
+    tables:
+      - name: orders
+        columns:
+          - {name: order_id, data_type: int}
+          - {name: user_id, data_type: int}
+          - {name: status, data_type: text}
+          - {name: created_at, data_type: datetime}
+          - {name: shipped_at, data_type: datetime}
+          - {name: delivered_at, data_type: datetime}
+          - {name: returned_at, data_type: datetime}
+          - {name: num_of_item, data_type: int}
+      - name: order_items
+        columns:
+          - {name: id, data_type: int}
+          - {name: order_id, data_type: int}
+          - {name: user_id, data_type: int}
+          - {name: product_id, data_type: int}
+          - {name: status, data_type: text}
+          - {name: created_at, data_type: datetime}
+          - {name: shipped_at, data_type: datetime}
+          - {name: delivered_at, data_type: datetime}
+          - {name: returned_at, data_type: datetime}
+          - {name: sale_price, data_type: number}
+      - name: products
+        columns:
+          - {name: id, data_type: int}
+          - {name: name, data_type: text}
+          - {name: category, data_type: text}
+          - {name: brand, data_type: text}
+          - {name: department, data_type: text}
+          - {name: sku, data_type: text}
+          - {name: cost, data_type: number}
+          - {name: retail_price, data_type: number}
+      - name: users
+        columns:
+          - {name: id, data_type: int}
+          - {name: email, data_type: text}
+          - {name: age, data_type: int}
+          - {name: gender, data_type: text}
+          - {name: state, data_type: text}
+          - {name: city, data_type: text}
+          - {name: country, data_type: text}
+          - {name: latitude, data_type: number}
+          - {name: longitude, data_type: number}
+          - {name: traffic_source, data_type: text}
+          - {name: created_at, data_type: datetime}
+      # Built once by python -m src.3_storage.events_bronze.
+      - name: events_partitioned
+        # Never reloaded, so freshness does not apply.
+        config:
+          freshness: null

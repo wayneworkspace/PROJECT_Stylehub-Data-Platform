@@ -1,100 +1,121 @@
-# StyleHub Data Pipeline
+# StyleHub Data Platform
 
-[![CI](https://github.com/wayneworkspace/PROJECT_Stylehub-Data-Platform/actions/workflows/ci.yaml/badge.svg)](https://github.com/wayneworkspace/PROJECT_Stylehub-Data-Platform/actions/workflows/ci.yaml)
-![Python](https://img.shields.io/badge/python-3.12-blue)
-![GCP](https://img.shields.io/badge/cloud-GCP-4285F4)
+[![CI](https://github.com/wayneworkspace/PROJECT_Stylehub-Data-Platform/actions/workflows/ci_test.yml/badge.svg)](https://github.com/wayneworkspace/PROJECT_Stylehub-Data-Platform/actions/workflows/ci_test.yml)
+![Python](https://img.shields.io/badge/python-3.13-blue)
+![Cloud](https://img.shields.io/badge/cloud-GCP-4285F4)
 
-A small ELT pipeline on Google Cloud for an online-shop dataset. Python loads the data, dbt builds the tables in BigQuery, Airflow runs it every day, and a Streamlit page shows if the pipeline is healthy.
+A daily ELT pipeline that turns the StyleHub online shop's raw tables and its live Postgres database into tested BigQuery tables, a health dashboard and an EDA page. Built with Python, Airflow 3, dbt, BigQuery, GCS, Terraform and Streamlit.
 
-## How the data flows
+## 1. Business Context & Goals
 
+* **Business problem:** StyleHub's orders, items, products, shipments, users and web events sit in raw tables and a live Postgres database. Analysts cannot trust or query them cheaply: there is no history, no tests, no partitioning, and nobody knows whether yesterday's data arrived.
+* **Project goal:** Load both sources every day without duplicates, keep every raw file, build tested facts, dimensions and business tables in BigQuery under a cost cap, and show pipeline health and data quality on one page.
+
+## 2. Pipeline Architecture
+
+```text
+Course tables (BigQuery) --full load--> Raw Zone (GCS Parquet) -> Bronze -> Silver -> Gold --> Streamlit
+Postgres (course DB) --incremental-->  Raw Zone (GCS, pg_*)    -> Bronze -> Silver -> Gold --> Streamlit EDA
+
+Airflow DAG stylehub_daily, 02:00 UTC, two branches:
+  ingest    -> bronze    -> silver    -> gold
+  pg_ingest -> pg_bronze -> pg_silver -> pg_gold
+Every step attempt is recorded in stylehub_ops.pipeline_runs.
 ```
-course tables (BigQuery) -> Raw Zone (GCS, Parquet) -> Bronze -> Silver -> Gold
-                                                                  (dbt)    (dbt)
-Airflow runs the four steps every day.  Streamlit (serving) reads the run log and Bronze.
-```
 
-| Step | What it does | Code |
-|---|---|---|
-| ingest | Copy each table to GCS as a Parquet file. Files are never overwritten | `src/stylehub/ingestion/` |
-| bronze | Load the newest file of each day into BigQuery. Running a day twice does not double the rows | `src/stylehub/bronze/` |
-| silver | Latest row per id, correct types, facts and dimensions | `dbt/models/staging`, `intermediate`, `marts/core` |
-| gold | Business rules, for example "Cancelled orders are not revenue" | `dbt/models/marts/reporting` |
-| serving | Streamlit page: pipeline runs and data freshness | `src/stylehub/serving/` |
+| Step | Description | Source code path |
+| --- | --- | --- |
+| **Sources** | Settings, GCP and Postgres clients, retry with backoff, one-time CSV upload | `src/1_source/` |
+| **Ingestion** | Full load of course tables with a schema check; incremental Postgres load by `updated_at` watermark with a 1-day lookback; append-only Parquet in Raw | `src/2_ingestion/` |
+| **Bronze** | Write-audit-publish: load into staging, check row counts against the Raw file, then replace the day's partition | `src/3_storage/` |
+| **Silver** | Newest row per id, typed columns, facts and dimensions with grain tests; SCD Type 2 product snapshot | `dbt_project/models/staging/`, `dbt_project/models/marts/core/`, `dbt_project/models/marts/pg_core/` |
+| **Gold** | Business rules: revenue, top customers, return rate, delivery time, order value; contracts and unit tests | `dbt_project/models/marts/reporting/`, `dbt_project/models/marts/pg_reporting/` |
+| **Serving** | Streamlit pipeline health page and EDA page (quality, duplicates, outliers, KPIs, correlation) | `src/5_serving/` |
+| **Orchestration** | One thin DAG; each task runs one step in the pipeline environment | `dags/` |
 
-Every step is logged and saved in the BigQuery table `stylehub_ops.pipeline_runs`.
+## 3. Technologies Used & Rationale
 
-## What is in each course session
+| Category | Technology | Rationale |
+| --- | --- | --- |
+| **Cloud / Warehouse** | Google Cloud Storage, BigQuery | GCS keeps every raw file cheaply; BigQuery gives partitions, clustering and a per-query bytes cap |
+| **Sources** | SQLAlchemy, psycopg2, pandas | Chunked, consistent `REPEATABLE READ` reads from Postgres straight into DataFrames |
+| **Transformation** | dbt (dbt-bigquery) | Modular SQL with tests, contracts, unit tests, snapshots and lineage |
+| **Orchestration** | Apache Airflow 3 | Daily schedule, retries, timeouts and backfills with clear task dependencies |
+| **Serving** | Streamlit, Altair | A Python-only dashboard; Altair charts ship with Streamlit, no extra dependency |
+| **Infrastructure** | Terraform, Workload Identity Federation | Every cloud resource in code, remote state, short-lived GitHub tokens instead of key files |
+| **Code & Quality** | Python 3.13, uv, Ruff, pytest, SQLFluff, pre-commit, colorlog | Same checks on a laptop and in CI; colored terminal logs and plain log files |
 
-| Session | Where to look |
-|---|---|
-| 1. Data platform | GCS bucket and datasets (`setup/`), `events_partitioned` with partition and cluster (`sql/bronze/`) |
-| 2. Ingestion | Raw Zone path and 3 metadata columns, schema check (`fail` or `absorb`), retry, `--date`, `--backfill-days`, `--incremental` with a lookback (`ingestion/`) |
-| 3. Transform and layering | Bronze, Silver, Gold with dbt; rules live in Gold |
-| 4. Airbyte | Not built yet |
-| 5. Data modeling | Silver facts and dimensions with a grain test on each |
-| 6. SCD | `dbt/snapshots/products_history.sql` (Type 2) |
+## 4. Results Achieved
 
-## Tech stack
+* **Data volume:** one daily run (data day 2026-10-16) loaded 434,986 course rows and 975,226 Postgres rows in the first full Postgres load; the partitioned `events` table holds about 108 million rows (15 GB).
+* **Performance:** course branch 259 s end to end (ingest 79 s, bronze 28 s, silver 110 s, gold 41 s); Postgres ingest 105 s and Bronze 40 s for the full first load; the next incremental run read 81,271 Postgres rows in 25 s.
+* **Cost control:** every query is capped at 50 GB billed; `events` is partitioned by day and clustered by `event_type, product_id`; the freshness query reads free table metadata.
+* **Quality:** dbt passed 29 Silver and 13 Gold checks on the course branch and 26 Silver checks on the Postgres branch; unit tests cover 100% of 671 Python statements.
+* **Insights:** the EDA page reads 316,358 Postgres order items of the last 90 days; it found no rule violations (no negative amounts, `amount` always equals `sale_price * quantity`), and 5.7% to 9.4% IQR outliers in price, quantity and amount.
 
-| Area | Tools |
-|---|---|
-| Cloud | Google Cloud Storage, BigQuery |
-| Code | Python 3.12, pandas, PyArrow, pydantic-settings |
-| Transform | dbt (dbt-bigquery) |
-| Schedule | Apache Airflow 3 |
-| Monitoring | `pipeline_runs` table, Python `logging`, Streamlit |
-| DevOps | Docker Compose, GitHub Actions (CI and CD), uv, ruff, mypy, sqlfluff, pre-commit |
+*Current limitations:* runs locally in Docker with one service account key; not deployed to a VM yet. Terraform plan is verified against the project (12 imports, 41 adds, 4 in-place changes, 0 destroys) but not applied. Postgres deletes are not detected. Gold profit uses today's product cost. The first Postgres load left some orders without their customer and some items without their order (dbt warnings); the next incremental run fixed the customers, but items without an order remain a warning.
 
-## Quick start
+## Quick Start
 
-You need [uv](https://docs.astral.sh/uv/), a Google Cloud project and Docker (for Airflow and the dashboard).
+### Prerequisites
+
+* [uv](https://docs.astral.sh/uv/) and Python 3.13
+* Docker Desktop with Docker Compose
+* A Google Cloud project, Terraform 1.9 or newer, and the course Postgres URL in `secrets/.env`
+
+### Install and run
 
 ```powershell
-git clone https://github.com/wayneworkspace/PROJECT_Stylehub-Data-Platform.git
+# 1. Clone the repository
+git clone <repository-url>
 cd PROJECT_Stylehub-Data-Platform
-uv sync --extra dev --extra dbt
-copy .env.example secrets\.env      # then fill in your values
-gcloud auth application-default login
-uv run python -m stylehub.setup.setup_gcp          # bucket, datasets, pipeline_runs
-uv run python -m stylehub.bronze.events_bronze     # build the big events table once
-uv run python -m stylehub.orchestration.run_daily --date 2026-10-01
-```
 
-Backfill the last 7 days of one table: `uv run python -m stylehub.ingestion.csv_tables --table orders --date 2026-10-07 --backfill-days 7`
+# 2. Install the environment and dependencies
+uv sync --extra dev --extra dbt --extra serving
+
+# 3. Configure environment variables
+copy .env.example secrets\.env   # fill in every value; keep secrets/ out of Git
+
+# 4. Create the cloud resources (bash), then load the course data once
+#    TF_STATE_BUCKET=<state-bucket> infra/scripts/deploy.sh apply
+uv run python -m src.1_source.load_csv
+uv run python -m src.3_storage.events_bronze
+```
 
 Run with Docker:
 
 ```powershell
-docker compose --env-file secrets/.env --profile airflow up -d --build   # http://localhost:8080
-docker compose --env-file secrets/.env --profile serving up -d --build   # http://localhost:8501
+docker compose --env-file secrets/.env --profile airflow up -d --build   # Airflow UI on AIRFLOW_WEB_PORT
+docker compose --env-file secrets/.env --profile serving up -d --build   # dashboard on http://localhost:8501
 ```
 
-Before you say a change is done:
+The pipeline runs only through Airflow. `docs/RUNBOOK.md` shows how to run one day, rerun a failed run, and backfill.
+
+## Code Quality & CI/CD
+
+Before opening a Pull Request, make sure all of these checks pass:
 
 ```powershell
-uv run ruff check . ; uv run ruff format --check . ; uv run mypy
+uv run ruff check .
+uv run ruff format --check .
+uv run pytest
+uvx pre-commit run --all-files
 ```
 
-## CI and CD
+* **CI pipeline (`ci_test.yml`):** pre-commit (ruff, gitleaks), pytest with 100% coverage, `requirements.txt` in sync with `uv.lock`, `dbt parse`, SQLFluff, Terraform `fmt`, `validate` and `plan`, both Docker images, and the DAG test inside the Airflow image.
+* **CD pipeline (`cd_deploy.yml`):** after CI passes on `main`, applies Terraform, pushes the tested Airflow image tagged with the commit id, and runs `dbt build` on the real datasets.
 
-- **CI** (`.github/workflows/ci.yaml`): pre-commit (ruff, gitleaks), mypy, `dbt parse`, sqlfluff, and a Docker build. No Google Cloud call.
-- **CD** (`.github/workflows/cd.yaml`): after CI passes on `main`, push the tested images. The tag is the commit id, never `latest`.
+## Project Structure
 
-## Project layout
-
+```text
+src/            # Python source by stage: 1_source ... 5_serving, plus utils/logger.py
+dags/           # Airflow DAG and its helper
+dbt_project/    # dbt models, tests, macros, snapshot
+include/sql/    # Plain SQL run by Python (events build, dashboard queries)
+infra/          # Terraform and the deploy script
+config/         # Airflow logging config
+tests/          # pytest unit tests and the DAG integrity test
+docs/           # RUNBOOK.md, ERRORS.md, SPEC.md
 ```
-src/stylehub/   ingestion/  bronze/  setup/  transform/  orchestration/  serving/  common/
-src/stylehub/sql/   Bronze, ops and serving queries
-dbt/            Silver and Gold models, tests, snapshot
-deploy/         Dockerfiles and the Airflow DAG
-```
 
-## Limitations
-
-- The source is the course tables in BigQuery, so every run is a full load. `--date` labels the Raw folder.
-- `--incremental` writes to `<table>_incremental` and Bronze does not load it, because Bronze keeps full snapshots.
-- Not run yet: a scheduled Airflow run, the Streamlit page, the `products_history` snapshot on real BigQuery.
-- One service account does everything on a laptop. No VM was created.
-
-> The StyleHub dataset belongs to the course. This repo holds only code. Never commit `secrets/`, keys or the raw CSV files.
+> **Note:** Never commit `secrets/`, keys, `.env` files, Terraform state or the course data. Work on a feature branch (`feature/...`, `fix/...`) and merge through a Pull Request that passes `ci_test.yml`. Errors and fixes are in `docs/ERRORS.md`.

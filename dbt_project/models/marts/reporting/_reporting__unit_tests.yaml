@@ -1,0 +1,81 @@
+version: 2
+
+# Gold rule checks on made-up rows; Silver must exist first.
+unit_tests:
+  - name: daily_revenue_excludes_cancelled_and_splits_returned
+    description: >
+      A Cancelled order is not revenue. A Returned order is in revenue and in returned_amount,
+      but not in net_revenue. An order without items still counts as an order with 0 revenue.
+    model: daily_revenue
+    config:
+      tags: ["gold"]
+    # Pinned rule, so a changed project value does not break this.
+    overrides:
+      vars:
+        revenue_excluded_statuses: [Cancelled]
+    given:
+      - input: ref('fact_orders')
+        rows:
+          - {order_id: 1, status: Complete, order_date: "2026-10-01"}
+          - {order_id: 2, status: Cancelled, order_date: "2026-10-01"}
+          - {order_id: 3, status: Returned, order_date: "2026-10-01"}
+          - {order_id: 4, status: Processing, order_date: "2026-10-02"}
+      - input: ref('fact_order_items')
+        rows:
+          - {order_id: 1, sale_price: 10}
+          - {order_id: 1, sale_price: 5}
+          - {order_id: 2, sale_price: 99}
+          - {order_id: 3, sale_price: 20}
+    expect:
+      rows:
+        - {order_date: "2026-10-01", n_orders: 2, revenue: 35, returned_amount: 20, net_revenue: 15}
+        - {order_date: "2026-10-02", n_orders: 1, revenue: 0, returned_amount: 0, net_revenue: 0}
+
+  - name: finance_changes_the_rule_and_only_gold_changes
+    description: >
+      Finance decides that Returned orders are not revenue either. Only the variable
+      revenue_excluded_statuses changes: the same Silver rows now give a smaller revenue.
+    model: daily_revenue
+    config:
+      tags: ["gold"]
+    overrides:
+      vars:
+        revenue_excluded_statuses: [Cancelled, Returned]
+    given:
+      - input: ref('fact_orders')
+        rows:
+          - {order_id: 1, status: Complete, order_date: "2026-10-01"}
+          - {order_id: 2, status: Returned, order_date: "2026-10-01"}
+      - input: ref('fact_order_items')
+        rows:
+          - {order_id: 1, sale_price: 10}
+          - {order_id: 2, sale_price: 20}
+    expect:
+      rows:
+        - {order_date: "2026-10-01", n_orders: 1, revenue: 10, returned_amount: 0, net_revenue: 10}
+
+  - name: monthly_revenue_keeps_unknown_products_and_skips_missing_cost
+    description: >
+      An item whose product is unknown stays in revenue under category 'Unknown'. An item without
+      a cost adds 0 to profit_at_current_cost and is counted in n_items_without_cost. A Cancelled
+      order is left out.
+    model: monthly_revenue_by_category
+    config:
+      tags: ["gold"]
+    given:
+      - input: ref('fact_orders')
+        rows:
+          - {order_id: 1, status: Complete, order_date: "2026-10-05"}
+          - {order_id: 2, status: Cancelled, order_date: "2026-10-06"}
+      - input: ref('fact_order_items')
+        rows:
+          - {order_id: 1, product_id: 1, sale_price: 10, cost: 4}
+          - {order_id: 1, product_id: 99, sale_price: 5}
+          - {order_id: 2, product_id: 1, sale_price: 50, cost: 4}
+      - input: ref('dim_products')
+        rows:
+          - {id: 1, category: Jeans}
+    expect:
+      rows:
+        - {month: "2026-10-01", category: Jeans, revenue: 10, profit_at_current_cost: 6, n_items_without_cost: 0}
+        - {month: "2026-10-01", category: Unknown, revenue: 5, profit_at_current_cost: 0, n_items_without_cost: 1}
