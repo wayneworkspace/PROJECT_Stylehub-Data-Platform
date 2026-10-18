@@ -148,6 +148,18 @@ docker compose --env-file secrets/.env --profile airflow --profile serving down 
 docker compose --env-file secrets/.env --profile airflow --profile serving up -d
 ```
 
+## 2.5b Dev datasets (optional)
+
+`infra/terraform/envs/dev` builds `stylehub_<layer>_dev` datasets from the same module as prod, with its own state (`stylehub-dev`). Tables there expire after 14 days.
+
+```bash
+cp infra/terraform/envs/dev/terraform.tfvars.example infra/terraform/envs/dev/terraform.tfvars   # fill in
+TF_ENV=dev TF_STATE_BUCKET=dehehe-510014-tfstate infra/scripts/deploy.sh plan
+terraform -chdir=infra/terraform/envs/dev apply tfplan
+```
+
+Point a dev `.env` at the `_dev` datasets (`terraform -chdir=infra/terraform/envs/dev output dataset_ids`) to try dbt changes without touching prod.
+
 ## 2.6 Run Airflow on a VM (optional, about 25 USD a month)
 
 The VM runs the same `docker compose` stack and signs in to GCP as `sa-pipeline`, so it needs no key file.
