@@ -1,0 +1,9 @@
+version: 2
+
+# No unique test: QUALIFY ROW_NUMBER() = 1 keeps one row per key; the mart tests it.
+models:
+  - name: stg_api__products
+    description: One row per API product, newest daily snapshot.
+    columns:
+      - name: id
+        data_tests: [not_null]

@@ -1,0 +1,20 @@
+version: 2
+
+# Daily snapshot of the products API (dummyjson.com), loaded by the stylehub_api DAG.
+sources:
+  - name: stylehub_api
+    database: "{{ env_var('GCP_PROJECT_ID') }}"
+    schema: "{{ env_var('BQ_BRONZE', 'stylehub_bronze') }}"
+    tables:
+      - name: api_products
+        description: One partition per load day; each load is a full catalog snapshot.
+        loaded_at_field: _ingested_at
+        freshness:
+          warn_after: {count: 26, period: hour}
+        columns:
+          - name: id
+            data_type: int
+          - name: price
+            data_type: number
+          - name: updated_at
+            data_type: datetime
