@@ -62,6 +62,17 @@ Each row: the message you see, why it happens, and the fix. Commands run from th
 | `Failed to get existing workspaces: bucket doesn't exist` | State bucket not created | `gcloud storage buckets create gs://<state-bucket> --location=asia-southeast1` |
 | CI plan step skipped | `WIF_PLAN_SERVICE_ACCOUNT` variable not set | Set the variables from `terraform output github_variables` |
 
+## Products API
+
+| Error message | Cause | Fix |
+|---|---|---|
+| `api_ready` stays in `up_for_reschedule`, then fails | The API is down or blocked | Check `curl https://dummyjson.com/products?limit=1`; the sensor gives up after 10 minutes |
+| `HTTPError 429` / `503` in `fetch_page`, then success | Rate limit or server trouble; retried with backoff | None; lower `AIRFLOW_VAR_STYLEHUB_API_PAGE_SIZE` or the `api_pool` slots if it repeats |
+| `SchemaError: api_products: the API stopped sending: ...` | The API changed its fields | Update `COLUMNS` in `src/2_ingestion/api_products.py` and the dbt models |
+| `conn_id stylehub_api isn't defined` | Connection variable missing in the container | Keep `AIRFLOW_CONN_STYLEHUB_API` in `docker-compose.yaml`, then `up -d` |
+| Tasks stay `scheduled` with `Not scheduling since there are 0 open slots in pool api_pool` | Pool missing or full | `airflow pools set api_pool 2 "..."` (done by `airflow-init`) |
+| `dags trigger` fails with a duplicate logical date | Unpausing already created that run | Use the scheduled run, or another logical date |
+
 ## Alerts
 
 | Error message | Cause | Fix |
