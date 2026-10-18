@@ -71,13 +71,6 @@ resource "google_project_iam_member" "this" {
   member   = local.sa[each.value.sa]
 }
 
-resource "google_bigquery_dataset_iam_member" "this" {
-  for_each   = local.dataset_access
-  dataset_id = google_bigquery_dataset.this[each.value.dataset].dataset_id
-  role       = each.value.role
-  member     = local.sa[each.value.sa]
-}
-
 # Raw Zone: the pipeline may add and read files, never overwrite or delete.
 resource "google_storage_bucket_iam_member" "pipeline_raw" {
   for_each = toset(["roles/storage.objectCreator", "roles/storage.objectViewer"])
