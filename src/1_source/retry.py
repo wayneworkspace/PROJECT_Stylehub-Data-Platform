@@ -1,6 +1,7 @@
 """Retry short-lived GCP and network errors with exponential backoff."""
 
 from collections.abc import Callable
+from importlib import import_module
 
 import requests
 import sqlalchemy
@@ -8,7 +9,7 @@ from google.api_core import exceptions
 from google.api_core.retry import Retry
 from google.auth import exceptions as auth_exceptions
 
-from src.utils.logger import get_logger
+get_logger = import_module("src.0_utils.logger").get_logger
 
 log = get_logger(__name__)
 

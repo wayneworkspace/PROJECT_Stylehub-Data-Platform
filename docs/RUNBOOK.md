@@ -1,119 +1,155 @@
 # Runbook
 
-How to set up, run, check and fix the StyleHub pipeline. Commands are PowerShell from the project folder unless marked `bash`.
+How to set up the StyleHub project once and run it every day. Commands are `bash` (Git Bash) from the project folder.
 
-## 1. First-time setup
+Detailed commands for each tool: `AIRFLOW.md`, `DOCKER.md`, `PYTHON.md`, `DBT.md`, `TERRAFORM.md`. Error messages and fixes: `ERRORS.md`.
 
-```powershell
-uv sync --extra dev --extra dbt --extra serving
-copy .env.example secrets\.env        # fill in every value; never commit secrets/
-gcloud auth application-default login # or a key file in secrets/ for Docker
-```
+## 1. Set up the project (once)
 
-Fill in `GCP_PROJECT_ID`, `GCS_BUCKET`, `POSTGRES_URL`, the four `AIRFLOW_` secrets and, for Docker, `GOOGLE_APPLICATION_CREDENTIALS=secrets/<key>.json`.
+### 1.1 Tools
 
-## 2. Infrastructure (Terraform)
+| Tool | Version | Check |
+|---|---|---|
+| Git, Git Bash | any | `git --version` |
+| uv | 0.12 or newer | `uv --version` |
+| Python | 3.13 (uv installs it) | `uv run python --version` |
+| Docker Desktop | with Compose v2 | `docker compose version` |
+| Google Cloud CLI | any | `gcloud --version` |
+| Terraform | 1.16.5 | `terraform version` |
+| GitHub CLI | any, logged in | `gh auth status` |
 
-One-time bootstrap by a project Owner:
-
-```powershell
-gcloud storage buckets create gs://<state-bucket> --location=asia-southeast1 --uniform-bucket-level-access
-copy infra\terraform\terraform.tfvars.example infra\terraform\terraform.tfvars   # fill it in
-```
-
-Plan and apply (`bash`; the script saves plain logs to `logs/infra/`):
+### 1.2 Code and settings
 
 ```bash
-TF_STATE_BUCKET=<state-bucket> infra/scripts/deploy.sh plan    # review the plan
-TF_STATE_BUCKET=<state-bucket> infra/scripts/deploy.sh apply   # asks before it changes anything
+git clone https://github.com/wayneworkspace/PROJECT_Stylehub-Data-Platform.git
+cd PROJECT_Stylehub-Data-Platform
+uv sync --extra dev --extra dbt --extra serving
+mkdir -p secrets && cp .env.example secrets/.env      # fill in every value; secrets/ is never committed
 ```
 
-After the first apply, set the GitHub variables, then CD applies future changes:
+Fill in `secrets/.env`:
 
-```powershell
-terraform -chdir=infra/terraform output -json github_variables
-gh variable set WIF_PLAN_SERVICE_ACCOUNT --body <value>   # repeat for each key
-gh variable set GCS_BUCKET_LOCATION --body ASIA
-gh variable set BQ_SOURCE_LOCATION --body US
+| Value | What to put |
+|---|---|
+| `GCP_PROJECT_ID`, `GCS_BUCKET` | `dehehe-510014`, `end-to-end-pipeline` |
+| `GOOGLE_APPLICATION_CREDENTIALS` | `secrets/<key>.json`: key of the pipeline service account, for Docker |
+| `POSTGRES_URL` | The read-only course database URL |
+| `AIRFLOW_DB_PASSWORD`, `AIRFLOW_ADMIN_PASSWORD` | New random passwords |
+| `AIRFLOW_SECRET_KEY`, `AIRFLOW_FERNET_KEY` | Generate with the commands in `.env.example` |
+| `AIRFLOW_WEB_PORT` | A free local port, for example `8082` |
+| `AI_GATEWAY_API_KEY` | TypeSafe key, only for reviews |
+
+### 1.3 Cloud resources (project Owner, once)
+
+```bash
+gcloud auth login && gcloud auth application-default login
+gcloud config set project dehehe-510014
+gcloud storage buckets create gs://dehehe-510014-tfstate --location=asia-southeast1 --uniform-bucket-level-access --public-access-prevention
+gcloud storage buckets update gs://dehehe-510014-tfstate --versioning
+gcloud services enable cloudresourcemanager.googleapis.com
+cp infra/terraform/terraform.tfvars.example infra/terraform/terraform.tfvars   # fill in; keep bucket_location and source_location
+
+unset GOOGLE_APPLICATION_CREDENTIALS
+TF_STATE_BUCKET=dehehe-510014-tfstate infra/scripts/deploy.sh plan    # expect 0 to destroy
+terraform -chdir=infra/terraform apply tfplan
 ```
 
-`imports.tf` adopts resources that existed before Terraform; delete it after the first apply, and before using a new project. The old accounts `sa-ingest`, `sa-transform`, `sa-monitor`, `sa-dbt-ci` and the `dbt_ci_*` datasets are no longer managed; delete them by hand once nothing uses them.
+Then set the GitHub variables (`TERRAFORM.md` section 2). For resources made before Terraform, add `import` blocks for the first apply and delete them afterwards.
 
-## 3. One-time data loads
+### 1.4 One-time data loads
 
-```powershell
-uv run python -m src.1_source.load_csv        # course CSVs in data/raw_data -> BigQuery source
-uv run python -m src.3_storage.events_bronze  # build events_partitioned (about 15 GB scan, once)
+```bash
+uv run python -m src.1_source.load_csv          # course CSVs in data/raw_data -> BigQuery source
+uv run python -m src.3_storage.events_bronze    # build events_partitioned (scans about 15 GB, once)
 ```
 
-## 4. Run Airflow
+### 1.5 Start the services
 
-```powershell
+```bash
 docker compose --env-file secrets/.env --profile airflow up -d --build
-docker compose --env-file secrets/.env --profile airflow ps
-docker compose --env-file secrets/.env --profile airflow down       # stop, keep data
+docker compose --env-file secrets/.env --profile serving up -d --build
+docker compose --env-file secrets/.env --profile airflow --profile serving ps    # all healthy or running
 ```
 
-Open `http://localhost:<AIRFLOW_WEB_PORT>`. The DAG `stylehub_daily` runs at 02:00 UTC with two branches:
-`ingest -> bronze -> silver -> gold` and `pg_ingest -> pg_bronze -> pg_silver -> pg_gold`.
-
-Run one day by hand, rerun a failed run, or backfill:
-
-```powershell
-docker compose --env-file secrets/.env --profile airflow exec airflow-scheduler airflow dags test stylehub_daily 2026-10-16
-docker compose --env-file secrets/.env --profile airflow exec airflow-scheduler airflow tasks clear stylehub_daily -s 2026-10-16 -e 2026-10-16 -y
-docker compose --env-file secrets/.env --profile airflow exec airflow-scheduler airflow backfill create --dag-id stylehub_daily --from-date 2026-10-10 --to-date 2026-10-16 --max-active-runs 1
-```
-
-## 5. Health checks
-
-| Check | Command | Healthy result |
+| Page | Address | Login |
 |---|---|---|
-| Airflow API is up | `curl http://localhost:<port>/api/v2/version` | JSON with `"version":"3.3.2"` |
-| DAG loads | `docker compose ... exec airflow-scheduler airflow dags list-import-errors` | `No data found` |
-| Latest run state | Airflow UI, Grid view of `stylehub_daily` | Every task green |
-| Step history | `SELECT step, status, rows_loaded, error FROM stylehub_ops.pipeline_runs ORDER BY started_at DESC LIMIT 20` | `success` rows for today |
-| Bronze freshness | Dashboard, "Data freshness" | No warning older than 26 hours |
-| Dashboard is up | `curl http://localhost:8501/_stcore/health` | `ok` |
-| Pipeline venv packages | `MSYS_NO_PATHCONV=1 docker compose ... exec -T airflow-scheduler /opt/venv/stylehub/bin/python -c "import colorlog, sqlalchemy"` | No error |
+| Airflow | `http://localhost:<AIRFLOW_WEB_PORT>` | `AIRFLOW_ADMIN_USER` / `AIRFLOW_ADMIN_PASSWORD` |
+| Dashboard | `http://localhost:8501` | none (localhost only) |
 
-## 6. Logs
+Unpause `stylehub_daily` in the Airflow UI (or `airflow dags unpause stylehub_daily`, see `AIRFLOW.md`).
 
-| Component | Where | Format |
+## 2. Daily operation
+
+The DAG runs by itself at 02:00 UTC (09:00 Vietnam time) and loads yesterday's data.
+
+### 2.1 Morning check (5 minutes)
+
+| Step | Where | Healthy |
 |---|---|---|
-| Airflow tasks | `logs/airflow/dag_id=stylehub_daily/run_id=.../task_id=.../attempt=N.log` | JSON lines |
-| Python code in `src/` | `logs/custom_scripts/unified-data_<env>_<module>_<date>.log` | Plain text, no colors |
-| dbt | `logs/dbt/<layer>/dbt.log` | JSON |
-| Terraform | `logs/infra/plan_<stamp>.log`, `apply_<stamp>.log` | Plain text |
+| 1. Docker is running | `docker compose --env-file secrets/.env --profile airflow --profile serving ps` | All services up |
+| 2. Last night's run | Airflow UI, Grid view of `stylehub_daily` | 8 green tasks |
+| 3. Step history | Dashboard "Pipeline health", or `SELECT step, status, rows_loaded, error FROM stylehub_ops.pipeline_runs ORDER BY started_at DESC LIMIT 20` | `success` for each step today |
+| 4. Data freshness | Dashboard "Data freshness" | No table older than 26 hours |
+| 5. dbt warnings | `grep -h '"Done. PASS' logs/dbt/*/dbt.log \| tail -4` | `ERROR=0`; only the known item-order WARN |
 
-## 7. Dashboard
+The laptop must be on and Docker running at 02:00 UTC. The DAG has `catchup=False`: after a break Airflow runs only the newest missed day, so backfill the others (section 2.3).
 
-```powershell
-docker compose --env-file secrets/.env --profile serving up -d --build   # http://localhost:8501
-uv run --extra serving streamlit run src/5_serving/dashboard.py           # without Docker
+### 2.2 When a task failed
+
+1. Open the failed task log in the Airflow UI, or `logs/airflow/dag_id=stylehub_daily/run_id=<run>/task_id=<task>/attempt=<n>.log`.
+2. Find the message in `ERRORS.md` and apply the fix.
+3. If you changed code: `docker compose --env-file secrets/.env --profile airflow up -d --build`.
+4. Clear the failed task (UI **Clear**, or REST in `AIRFLOW.md` section 4); tasks after it run again.
+
+Every step is safe to rerun: Raw is append-only, Bronze replaces its day partition, dbt rebuilds tables.
+
+### 2.3 Run or rerun past days
+
+```bash
+export MSYS_NO_PATHCONV=1
+AF="docker compose --env-file secrets/.env --profile airflow exec -T airflow-scheduler airflow"
+$AF dags trigger stylehub_daily -l 2026-10-16T02:00:00+00:00          # one data day
+$AF backfill create --dag-id stylehub_daily --from-date 2026-10-10 --to-date 2026-10-16 --max-active-runs 1
 ```
 
-Pages: pipeline health and freshness, and the EDA page (quality, duplicates, outliers, KPIs over the last 90 days of Postgres order items).
+### 2.4 Change code
 
-## 8. Before a pull request
-
-```powershell
-uv run ruff check . ; uv run ruff format --check .
-uv run pytest                           # fails below 100% coverage
+```bash
+git switch main && git pull
+git switch -c feature/<short-name>                  # or fix/<short-name>
+# edit, then run the checks:
+uv run ruff check . && uv run ruff format --check .
+uv run pytest                                       # must stay at 100% coverage
 uv run sqlfluff lint dbt_project/models dbt_project/macros dbt_project/tests include/sql
-$env:GCP_PROJECT_ID="ci"; $env:GCS_BUCKET="ci"; uv run dbt parse --project-dir dbt_project --profiles-dir dbt_project --log-path logs/dbt
-terraform -chdir=infra/terraform fmt -check ; terraform -chdir=infra/terraform validate
+terraform -chdir=infra/terraform fmt -check && terraform -chdir=infra/terraform validate
 uvx pre-commit run --all-files
+git push -u origin HEAD && gh pr create
 ```
 
-CI (`ci_test.yml`) runs the same checks on every pull request. CD (`cd_deploy.yml`) applies Terraform, pushes the tested Airflow image and runs dbt after a merge to `main`.
+After review and a green `ci_test.yml`, merge. `cd_deploy.yml` then applies Terraform, pushes the Airflow image and runs `dbt build` on production. Rebuild local Docker to pick up the change.
 
-## 9. Incidents
+### 2.5 Stop and start
+
+```bash
+docker compose --env-file secrets/.env --profile airflow --profile serving down     # keeps run history
+docker compose --env-file secrets/.env --profile airflow --profile serving up -d
+```
+
+## 3. Regular tasks
+
+| When | Task |
+|---|---|
+| Weekly | Check `logs/` size; old files can be deleted |
+| Weekly | Read Dependabot pull requests; merge when CI is green |
+| Before a release | Run the ponytail + Jev review; report in `output/DD-MM-YYYY.md` (`.claude/REVIEW_RULES.md`) |
+| Every 90 days | Rotate the key in `secrets/` and the Airflow passwords |
+
+## 4. Incidents
 
 | Symptom | First action |
 |---|---|
-| A task failed | Read its attempt log in `logs/airflow`, look the message up in `docs/ERRORS.md` |
-| Postgres password changed | Update `POSTGRES_URL` in `secrets/.env`, restart Airflow |
+| Postgres password changed | Update `POSTGRES_URL` in `secrets/.env`, then restart Airflow |
 | Key file leaked | Disable the key in IAM, create a new one, replace it in `secrets/` |
-| Wrong data in Gold | Fix the model, then rerun `silver` and `gold`; Bronze keeps every load |
+| Wrong numbers in Gold | Fix the model, rerun `silver`/`gold` (or `pg_silver`/`pg_gold`); Bronze keeps every load |
 | Bad Raw file | Raw is append-only; the next run writes a new batch and Bronze reads the newest |
+| Terraform plan wants to destroy | Stop; check `terraform.tfvars` locations and `TERRAFORM.md` section 4 |
