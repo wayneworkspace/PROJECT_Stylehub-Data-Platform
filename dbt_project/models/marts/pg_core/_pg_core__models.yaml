@@ -52,6 +52,20 @@ models:
                 severity: warn
       - name: total_cost
         description: quantity * the product's cost today. NULL if the product is unknown.
+      - name: total_cost_at_sale
+        description: quantity * the cost valid when the item was sold (pg_dim_products_history).
+
+  - name: pg_dim_products_history
+    description: >
+      SCD Type 2 of products, one row per version from Bronze (grain product_id, valid_from).
+      valid_to is 9999-12-31 for the current row; the first version starts at 1970-01-01, so
+      sales before the history began use it. tests/pg_products_history_is_continuous.sql
+      checks one current row and no gaps or overlaps.
+    columns:
+      - name: product_id
+        data_tests: [not_null]
+      - name: valid_from
+        data_tests: [not_null]
 
   - name: pg_fact_shipments
     description: One row per shipment (grain). delivery_hours is NULL until delivered.
