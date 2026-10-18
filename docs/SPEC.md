@@ -33,8 +33,9 @@
 | `gold` | dbt builds revenue tables and runs Gold unit tests | `silver` |
 | `pg_ingest` | Incremental Postgres load by `updated_at` watermark with lookback | — |
 | `pg_bronze` | Changed rows land in never-expiring Bronze day partitions | `pg_ingest` |
-| `pg_silver` | dbt keeps newest row per id, checks item amounts | `pg_bronze` |
-| `pg_gold` | dbt builds Buổi 5 business tables and Gold-Silver check | `pg_silver` |
+| `pg_reconcile` | Ids in Bronze but gone from Postgres go to `pg_deleted_ids` | `pg_bronze` |
+| `pg_silver` | dbt keeps newest row per id without deleted ids, SCD2 product history, cost at sale | `pg_reconcile` |
+| `pg_gold` | dbt builds Buổi 5 tables, profit at sale cost, published monthly revenue, Gold-Silver check | `pg_silver` |
 | `freshness` | Fails and alerts when a Bronze table is older than 26 hours | `gold`, `pg_gold` |
 
 ## DAG `stylehub_api`
@@ -69,7 +70,7 @@
 | Idempotency | Same watermark on rerun reads same rows, replaces partition |
 | Consistency | One `REPEATABLE READ` transaction, row count checked against source |
 | Volume | One read per window; the window is held in memory |
-| Deletes | Source deletes stay in Bronze; needs full compare or CDC |
+| Deletes | `pg_reconcile` compares all ids daily; `pg_deleted_ids` makes Silver drop them |
 | Empty day | No changed rows writes no file and is not failure |
 
 ## Data quality checks
@@ -85,6 +86,8 @@
 | Item `amount` equals `sale_price` times `quantity` | `tests/pg_order_items_amount_matches.sql` | Error stops run |
 | Gold revenue totals equal Silver revenue total | `tests/pg_gold_matches_silver.sql` | Error stops run |
 | Recent `fact_events` grain without scanning 15 GB | `tests/fact_events_recent_grain.sql` | Error stops run |
+| Product history has one current row, no gaps or overlaps | `tests/pg_products_history_is_continuous.sql` | Error stops run |
+| Published month revenue differs from today's number | `tests/pg_published_revenue_drift.sql` | Warning only |
 | Foreign keys between facts and dimensions | dbt `relationships` | Warning only |
 
 ## Serving
@@ -139,8 +142,8 @@
 
 ## Known limits
 
-- Terraform plan verified against project; first apply needs project Owner.
-- Old service accounts and `dbt_ci_*` datasets remain until removed manually.
-- Gold profit uses today's product cost, not cost at sale.
+- Terraform is applied by CD from `main`; changes made in the console are undone.
+- Airflow runs on a laptop; the 02:00 UTC schedule needs it switched on.
+- Product cost history starts on 2026-10-01; older sales use the first known version.
 - CSV and Postgres branches build parallel Silver and Gold stacks today.
 - Airflow 3 structlog colors console; custom colorlog formatter loads but unused.

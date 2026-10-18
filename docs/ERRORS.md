@@ -18,6 +18,9 @@ Each row: the message you see, why it happens, and the fix. Commands run from th
 | `Ordering by expressions of type STRUCT is not allowed` | A CTE has the same name as a column, so BigQuery orders by the whole row | Rename the CTE (see `pg_monthly_top_customers.sql`) |
 | `Not found: Job ...` on several models at once | `--fail-fast` cancelled parallel jobs after one model failed | Find the first `ERROR in model` line; that model is the real cause |
 | Silver step fails on `pg_gold_matches_silver` because Gold tables are missing | Eager test selection pulls tests with one selected parent | Keep `--indirect-selection cautious` in `src/4_transform/run_dbt.py` |
+| `Not found: Table ...pg_deleted_ids` in `pg_silver` | The reconcile step never ran | Run `pg_reconcile` once (it creates the table), then `pg_silver` |
+| `pg_published_revenue_drift` WARN | Rows arrived or changed for a month that was already published | Expected; the published number stays. Check the late rows if the gap is large |
+| `pg_products_history_is_continuous` fails | Two Bronze rows of a product share `updated_at` but differ | Look at that product in `stylehub_bronze.pg_products`; the history keeps the newest `_ingested_at` |
 | `DefaultCredentialsError: Your default credentials were not found` | No GCP login in the container | Put the key in `secrets/`, set the relative path in `secrets/.env` |
 | `Could not record the run in BigQuery` (warning) | `pipeline_runs` missing or no access | `terraform apply` creates it; grant `ops` dataEditor |
 
