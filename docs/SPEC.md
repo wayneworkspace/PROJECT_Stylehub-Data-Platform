@@ -77,7 +77,7 @@
 
 | Check | Where | Severity |
 |---|---|---|
-| Source columns match declared schema before reading rows | `src/2_ingestion/schema_check.py` | Error stops run |
+| Source columns match declared schema before reading rows (course tables and Postgres) | `src/2_ingestion/schema_check.py` | Error stops run |
 | Rows read equal source table row count | `csv_tables.py`, `postgres_tables.py` | Error stops run |
 | Bronze staging rows equal Raw file footer rows | `src/3_storage/load_bronze.py` | Error keeps partition |
 | Empty Bronze day fails CSV branch loudly | `src/4_transform/run_daily.py` | Error stops run |

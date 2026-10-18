@@ -152,6 +152,7 @@ docker compose --env-file secrets/.env --profile airflow --profile serving up -d
 | When | Task |
 |---|---|
 | Weekly | Check `logs/` size; old files can be deleted |
+| Weekly | `uv run python include/scripts/dry_run_report.py`: bytes per query, to catch a missing partition filter |
 | Weekly | Read Dependabot pull requests; merge when CI is green |
 | Before a release | Run the ponytail + Jev review; report in `output/DD-MM-YYYY.md` (`.claude/REVIEW_RULES.md`) |
 | Every 90 days | Rotate the key in `secrets/` and the Airflow passwords |
