@@ -29,6 +29,7 @@ x-airflow-common: &airflow-common
     AIRFLOW__LOGGING__LOGGING_CONFIG_CLASS: config.airflow_local_settings.LOGGING_CONFIG
     PYTHONPATH: /opt/airflow  # makes config.airflow_local_settings importable
     DBT_USE_COLORS: "false"  # task logs are files, so no color codes
+    ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}  # Discord alerts; empty means log only
   volumes:
     # Secrets, logging config and logs; drop secrets on a VM.
     - ./secrets:/opt/stylehub/secrets:ro
