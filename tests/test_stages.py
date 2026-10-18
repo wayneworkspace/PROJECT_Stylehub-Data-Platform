@@ -1,6 +1,7 @@
 """Pipeline stages against fake GCS, BigQuery, Postgres and dbt; no cloud needed."""
 
 import io
+import logging
 import os
 import sys
 from datetime import datetime
@@ -56,6 +57,10 @@ class FakeBQ:
 
     def get_dataset(self, dataset_id: str) -> NS:
         return NS(location="US")
+
+    def list_rows(self, table: object, selected_fields: list) -> NS:
+        self.calls.append(("list_rows", [f.name for f in selected_fields]))
+        return NS(to_dataframe=lambda: self.frame)
 
     def query(self, sql: str, job_config: object = None) -> NS:
         self.calls.append(("query", sql))
@@ -155,10 +160,13 @@ def test_settings_resolve_relative_key_path(tmp_path, monkeypatch) -> None:
 
 
 def test_clients_and_engine(cfg, monkeypatch) -> None:
+    config.bq_client.cache_clear()
+    config.gcs_client.cache_clear()
     monkeypatch.setattr(config.bigquery, "Client", lambda project: ("bq", project))
     monkeypatch.setattr(config.storage, "Client", lambda project: ("gcs", project))
     assert config.bq_client(cfg) == ("bq", "proj")
     assert config.gcs_client(cfg) == ("gcs", "proj")
+    assert config.bq_client(cfg) is config.bq_client(cfg)  # cached per settings
     assert config.pg_engine(cfg).url.host == "h"
     with pytest.raises(RuntimeError, match="POSTGRES_URL"):
         config.pg_engine(config.Settings(GCP_PROJECT_ID="p", GCS_BUCKET="b", POSTGRES_URL=None))
@@ -287,14 +295,13 @@ def test_postgres_incremental_ingest(cfg, monkeypatch) -> None:
     monkeypatch.setattr(config, "bq_client", lambda cfg: client)
     monkeypatch.setattr(config, "gcs_client", lambda cfg: gcs)
     monkeypatch.setattr(config, "pg_engine", lambda cfg: FakePg(2))
-    chunks = [pd.DataFrame({"id": [1]}), pd.DataFrame({"id": [2]})]
-    monkeypatch.setattr(pg_tables.pd, "read_sql", lambda *a, **k: iter(chunks))
+    monkeypatch.setattr(pg_tables.pd, "read_sql", lambda *a, **k: pd.DataFrame({"id": [1, 2]}))
     assert pg_tables.ingest_table("orders", "2026-10-15", cfg) == 2
     assert "_PARTITIONDATE < DATE '2026-10-15'" in client.calls[0][1]
     assert next(iter(gcs.uploaded)).startswith("raw/stylehub/pg_orders/date=2026-10-15/")
 
     monkeypatch.setattr(config, "pg_engine", lambda cfg: FakePg(0))
-    monkeypatch.setattr(pg_tables.pd, "read_sql", lambda *a, **k: iter([pd.DataFrame({"id": []})]))
+    monkeypatch.setattr(pg_tables.pd, "read_sql", lambda *a, **k: pd.DataFrame({"id": []}))
     client.tables.clear()  # first run: no Bronze table, full load
     assert pg_tables.ingest_table("orders", "2026-10-15", cfg) == 0
 
@@ -459,3 +466,19 @@ def test_logger_is_set_up_once() -> None:
     first = logger.get_logger("tests.once")
     assert logger.get_logger("tests.once") is first
     assert len(first.handlers) == 2
+
+
+def test_log_file_moves_to_the_new_day(tmp_path, monkeypatch) -> None:
+    logger = import_module("src.0_utils.logger")
+    monkeypatch.setattr(logger, "LOG_DIR", tmp_path)
+    days = iter(["2026-01-01", "2026-01-01", "2026-01-02"])
+    monkeypatch.setattr(logger, "today", lambda: next(days))
+    handler = logger.DailyFileHandler("unified-data_test_mod")
+    record = logging.LogRecord("mod", logging.INFO, __file__, 1, "hello", None, None)
+    handler.emit(record)  # same day
+    handler.emit(record)  # after midnight: new file
+    handler.close()
+    assert sorted(f.name for f in tmp_path.iterdir()) == [
+        "unified-data_test_mod_2026-01-01.log",
+        "unified-data_test_mod_2026-01-02.log",
+    ]

@@ -1,6 +1,7 @@
 """Pipeline settings from environment variables, plus GCP and Postgres clients."""
 
 import os
+from functools import cache
 from pathlib import Path
 
 import google.cloud.storage as storage
@@ -47,10 +48,12 @@ def settings() -> Settings:
     return Settings()  # values come from the environment
 
 
+@cache  # one client per settings; Settings is frozen, so hashable
 def bq_client(cfg: Settings) -> bigquery.Client:
     return bigquery.Client(project=cfg.project)
 
 
+@cache
 def gcs_client(cfg: Settings) -> storage.Client:
     return storage.Client(project=cfg.project)
 

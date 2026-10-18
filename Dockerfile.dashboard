@@ -16,7 +16,7 @@ RUN pip install --no-cache-dir "uv==${UV_VERSION}" \
 
 # Dependencies first, so this layer is reused until uv.lock changes.
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev --extra serving
+RUN uv sync --frozen --no-dev --extra serving --no-cache
 
 COPY --chown=app:app src ./src
 COPY --chown=app:app include ./include

@@ -8,7 +8,6 @@ import pandas as pd
 
 get_logger = import_module("src.0_utils.logger").get_logger
 
-bq = import_module("src.1_source.bq")
 config = import_module("src.1_source.config")
 retry = import_module("src.1_source.retry")
 raw_writer = import_module("src.2_ingestion.raw_writer")
@@ -48,15 +47,15 @@ def extract_full(table: str, cfg: config.Settings) -> pd.DataFrame:
     table_id = f"{cfg.project}.{cfg.source}.{table}"
     source = retry.call_with_retry(lambda: client.get_table(table_id))
     dropped = DROP_COLUMNS.get(table, [])
-    schema_check.check_declared_schema(table, [f for f in source.schema if f.name not in dropped])
-    # Safe: table comes from CSV_TABLES, dataset from settings.
-    query = f"SELECT * FROM `{table_id}`"  # noqa: S608
+    fields = [f for f in source.schema if f.name not in dropped]
+    schema_check.check_declared_schema(table, fields)
+    # Reads table data directly: no query job, no billed query bytes.
     df = retry.call_with_retry(
-        lambda: client.query(query, job_config=bq.query_config(cfg)).to_dataframe()
+        lambda: client.list_rows(source, selected_fields=fields).to_dataframe()
     )
     if source.num_rows is not None and len(df) != source.num_rows:
         raise SourceRowMismatch(f"{table}: read {len(df)} rows, the source has {source.num_rows}")
-    return schema_check.type_empty_columns(df.drop(columns=dropped, errors="ignore"), table)
+    return schema_check.type_empty_columns(df, table)
 
 
 def ingest_table(table: str, data_date: str, cfg: config.Settings) -> int:

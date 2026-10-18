@@ -74,7 +74,8 @@ def test_dbt_build_command_selects_layer_tag() -> None:
     assert args[0] == "build"
     assert "--fail-fast" in args
     assert args[args.index("--indirect-selection") + 1] == "cautious"
-    assert args[-2:] == ["--select", "tag:silver"]
+    assert args[args.index("--select") + 1] == "tag:silver"
+    assert args[-2:] == ["--exclude", "tag:events"]
     assert args[args.index("--target-path") + 1].endswith("silver")
     assert args[args.index("--log-path") + 1].replace("\\", "/").endswith("logs/dbt/silver")
 

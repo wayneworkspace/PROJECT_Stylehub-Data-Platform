@@ -49,7 +49,7 @@ Every step attempt is recorded in stylehub_ops.pipeline_runs.
 
 * **Data volume:** one daily run (data day 2026-10-16) loaded 434,986 course rows and 975,226 Postgres rows in the first full Postgres load; the partitioned `events` table holds about 108 million rows (15 GB).
 * **Performance:** course branch 259 s end to end (ingest 79 s, bronze 28 s, silver 110 s, gold 41 s); Postgres ingest 105 s and Bronze 40 s for the full first load; the next incremental run read 81,271 Postgres rows in 25 s.
-* **Cost control:** every query is capped at 50 GB billed; `events` is partitioned by day and clustered by `event_type, product_id`; the freshness query reads free table metadata.
+* **Cost control:** every query is capped at 50 GB billed; `events` is partitioned by day and clustered by `event_type, product_id`; the freshness query reads free table metadata; static events stay out of the nightly build, so the Silver step bills 0.41 GB instead of about 6.7 GB.
 * **Quality:** dbt passed 29 Silver and 13 Gold checks on the course branch and 26 Silver checks on the Postgres branch; unit tests cover 100% of 671 Python statements.
 * **Insights:** the EDA page reads 316,358 Postgres order items of the last 90 days; it found no rule violations (no negative amounts, `amount` always equals `sale_price * quantity`), and 5.7% to 9.4% IQR outliers in price, quantity and amount.
 
@@ -80,6 +80,7 @@ copy .env.example secrets\.env   # fill in every value; keep secrets/ out of Git
 #    TF_STATE_BUCKET=<state-bucket> infra/scripts/deploy.sh apply
 uv run python -m src.1_source.load_csv
 uv run python -m src.3_storage.events_bronze
+uv run dotenv -f secrets/.env run -- dbt build --project-dir dbt_project --profiles-dir dbt_project --select tag:events
 ```
 
 Run with Docker:

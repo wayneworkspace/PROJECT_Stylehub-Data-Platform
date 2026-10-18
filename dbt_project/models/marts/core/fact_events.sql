@@ -1,7 +1,8 @@
--- One row per event (~108M); daily runs rebuild only recent partitions.
--- Events later than events_lookback_days need dbt build --full-refresh.
+-- One row per event (~108M). Events are loaded once, so tag events keeps it
+-- out of daily runs; after a new events load: dbt build --select tag:events
 
 {{ config(
+    tags=['events'],
     materialized='incremental',
     incremental_strategy='insert_overwrite',
     partition_by={'field': 'event_date', 'data_type': 'date'},
