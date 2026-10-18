@@ -62,6 +62,15 @@ Each row: the message you see, why it happens, and the fix. Commands run from th
 | `Failed to get existing workspaces: bucket doesn't exist` | State bucket not created | `gcloud storage buckets create gs://<state-bucket> --location=asia-southeast1` |
 | CI plan step skipped | `WIF_PLAN_SERVICE_ACCOUNT` variable not set | Set the variables from `terraform output github_variables` |
 
+## Alerts
+
+| Error message | Cause | Fix |
+|---|---|---|
+| `ALERT_WEBHOOK_URL is not set; alert not sent` | No webhook in `secrets/.env`, or Airflow started before it was added | Add it, then `docker compose ... --profile airflow up -d` |
+| `Could not send the alert: HTTPError` | Webhook deleted or wrong (Discord answers 401/404) | Create a new webhook in Discord, update `ALERT_WEBHOOK_URL` |
+| `freshness` task fails with `stale Bronze tables` | A table was not loaded in 26 hours | Check the failed load step of that table, rerun it, then clear `freshness` |
+| No Discord message for a GCP alert | Cloud Monitoring cannot post Discord's format | Read incidents in Cloud Monitoring, or add channels via `alert_notification_channels` |
+
 ## Review tooling
 
 | Error message | Cause | Fix |
