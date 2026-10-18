@@ -1,0 +1,41 @@
+version: 2
+
+# Gold for the Postgres branch: Buổi 5 business questions.
+models:
+  - name: pg_daily_revenue
+    description: Revenue per order day; statuses in revenue_excluded_statuses are not counted.
+    columns:
+      - name: order_date
+        data_tests: [unique, not_null]
+      - name: revenue
+        data_tests: [not_null]
+
+  - name: pg_monthly_revenue_by_category
+    description: Revenue and profit at today's cost, per month and category (grain).
+    columns:
+      - name: revenue
+        data_tests: [not_null]
+
+  - name: pg_monthly_top_customers
+    description: Top 5 customers by revenue in each month (grain month, user_id).
+    columns:
+      - name: user_id
+        data_tests: [not_null]
+
+  - name: pg_return_rate_by_state
+    description: Share of all orders that were returned, per customer state.
+    columns:
+      - name: state
+        data_tests: [unique, not_null]
+
+  - name: pg_delivery_time_by_state
+    description: Average hours from shipped to delivered, per customer state.
+    columns:
+      - name: state
+        data_tests: [unique, not_null]
+
+  - name: pg_order_value_by_traffic_source
+    description: Average order value of counted orders, per traffic source.
+    columns:
+      - name: traffic_source
+        data_tests: [unique, not_null]

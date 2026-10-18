@@ -1,0 +1,33 @@
+version: 2
+
+# Newest version of each id; the grain test proves the dedupe worked.
+models:
+  - name: stg_pg__orders
+    description: One row per order, newest version by updated_at.
+    columns:
+      - name: order_id
+        data_tests: [unique, not_null]
+
+  - name: stg_pg__order_items
+    description: One row per order item, newest version by updated_at.
+    columns:
+      - name: id
+        data_tests: [unique, not_null]
+
+  - name: stg_pg__products
+    description: One row per product, newest version by updated_at.
+    columns:
+      - name: id
+        data_tests: [unique, not_null]
+
+  - name: stg_pg__shipments
+    description: One row per shipment, newest version by updated_at.
+    columns:
+      - name: shipment_id
+        data_tests: [unique, not_null]
+
+  - name: stg_pg__users
+    description: One row per customer; names, street and postal code dropped.
+    columns:
+      - name: id
+        data_tests: [unique, not_null]
