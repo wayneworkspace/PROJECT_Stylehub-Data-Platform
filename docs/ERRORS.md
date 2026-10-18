@@ -49,6 +49,7 @@ Each row: the message you see, why it happens, and the fix. Commands run from th
 | `No module named 'utils_dag'` in the DAG test | Plain DagBag does not add the DAG folder | Insert `settings.DAGS_FOLDER` into `sys.path` first |
 | Ruff `E402` after `import_module` aliases | Import placed below an alias line | Put `from src.utils.logger import get_logger` above the aliases |
 | Ruff `DTZ001` in a test | Naive `datetime(...)` | Use `datetime.fromisoformat(...)` for naive Postgres times |
+| CD `dbt build`: `Got unexpected extra argument (n)` | A literal `\n` instead of a line break in the `run:` block | End the line with ` \` and continue on the next line; check with `bash -n` |
 | sqlfluff `unknown tag 'snapshot'` | sqlfluff cannot parse dbt snapshots | Snapshots stay out of the lint paths |
 
 ## Terraform

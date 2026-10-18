@@ -120,4 +120,5 @@ jobs:
       - name: Build models and run their tests on the real datasets
         run: |
           uv sync --frozen --extra dbt
-          uv run dbt build --project-dir dbt_project --profiles-dir dbt_project --log-path logs/dbt \n            --fail-fast --indirect-selection cautious
+          uv run dbt build --project-dir dbt_project --profiles-dir dbt_project --log-path logs/dbt \
+            --fail-fast --indirect-selection cautious
