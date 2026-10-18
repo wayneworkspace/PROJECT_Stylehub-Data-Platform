@@ -24,3 +24,13 @@ repos:
     rev: v8.30.1
     hooks:
       - id: gitleaks
+
+
+  - repo: local
+    hooks:
+      # A literal \n where a line break was meant once broke CD and a Dockerfile.
+      - id: no-literal-newline
+        name: no literal \n before an indented line
+        language: pygrep
+        entry: '\\n {2,}'
+        files: (Dockerfile.*|\.ya?ml|\.sh)$
