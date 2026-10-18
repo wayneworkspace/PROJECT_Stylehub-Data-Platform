@@ -295,6 +295,7 @@ def test_postgres_incremental_ingest(cfg, monkeypatch) -> None:
     monkeypatch.setattr(config, "bq_client", lambda cfg: client)
     monkeypatch.setattr(config, "gcs_client", lambda cfg: gcs)
     monkeypatch.setattr(config, "pg_engine", lambda cfg: FakePg(2))
+    monkeypatch.setattr(pg_tables, "check_schema", lambda table, cfg: None)  # tested below
     monkeypatch.setattr(pg_tables.pd, "read_sql", lambda *a, **k: pd.DataFrame({"id": [1, 2]}))
     assert pg_tables.ingest_table("orders", "2026-10-15", cfg) == 2
     assert "_PARTITIONDATE < DATE '2026-10-15'" in client.calls[0][1]
@@ -637,3 +638,20 @@ def test_reconcile_writes_the_deleted_ids(cfg, monkeypatch) -> None:
     assert target == "proj.stylehub_bronze.pg_deleted_ids" and disposition == "WRITE_TRUNCATE"
     assert sorted(frame["table_name"]) == sorted(pg_tables.PG_TABLES)
     assert set(frame["id"]) == {2}
+
+
+def test_postgres_schema_check(cfg, monkeypatch) -> None:
+    pg_types = {"int": "bigint", "number": "numeric", "text": "text"}
+    pg_types["datetime"] = "timestamp without time zone"
+    expected = schema_check.expected_schemas("stylehub_pg")["pg_orders"]
+    columns = [(c, pg_types[k]) for c, k in expected.items()]
+
+    class Conn(FakePg):
+        def execute(self, query: object, params: dict | None = None) -> NS:
+            return NS(all=lambda: columns)
+
+    monkeypatch.setattr(config, "pg_engine", lambda cfg: Conn(0))
+    pg_tables.check_schema("orders", cfg)  # matches the sources file
+    columns[2] = (columns[2][0], "text")  # total_amount turned into text
+    with pytest.raises(schema_check.SchemaError, match="type changes"):
+        pg_tables.check_schema("orders", cfg)
