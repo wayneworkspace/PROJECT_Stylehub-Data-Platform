@@ -14,8 +14,8 @@ resource "google_iam_workload_identity_pool_provider" "github_repo" {
   attribute_mapping = {
     "google.subject"       = "assertion.sub"
     "attribute.repository" = "assertion.repository"
-    # "yes" only for runs on main, so apply rights never reach pull requests.
-    "attribute.main" = "assertion.ref == 'refs/heads/main' ? 'yes' : 'no'"
+    # "yes" only for main of this repo, even if the pool gets more providers.
+    "attribute.main" = "assertion.repository == '${var.github_repository}' && assertion.ref == 'refs/heads/main' ? 'yes' : 'no'"
   }
   attribute_condition = "assertion.repository == '${var.github_repository}'"
 
