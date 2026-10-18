@@ -11,7 +11,7 @@ import streamlit as st
 
 # Streamlit runs this file by path; add the project root.
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-from src.utils.logger import get_logger
+get_logger = import_module("src.0_utils.logger").get_logger
 
 eda = import_module("src.5_serving.eda")
 read = import_module("src.5_serving.reader").read

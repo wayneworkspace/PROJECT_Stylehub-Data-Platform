@@ -6,7 +6,7 @@ import google.cloud.storage as storage
 import pyarrow.parquet as pq
 from google.cloud import bigquery
 
-from src.utils.logger import get_logger
+get_logger = import_module("src.0_utils.logger").get_logger
 
 bq = import_module("src.1_source.bq")
 config = import_module("src.1_source.config")

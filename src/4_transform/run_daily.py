@@ -6,7 +6,7 @@ from functools import partial
 from importlib import import_module
 from typing import Any
 
-from src.utils.logger import get_logger
+get_logger = import_module("src.0_utils.logger").get_logger
 
 config = import_module("src.1_source.config")
 utils = import_module("src.1_source.utils")

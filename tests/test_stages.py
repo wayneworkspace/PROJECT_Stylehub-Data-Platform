@@ -455,7 +455,7 @@ def test_run_python_step_calls_run_daily(monkeypatch) -> None:
 
 
 def test_logger_is_set_up_once() -> None:
-    logger = import_module("src.utils.logger")
+    logger = import_module("src.0_utils.logger")
     first = logger.get_logger("tests.once")
     assert logger.get_logger("tests.once") is first
     assert len(first.handlers) == 2

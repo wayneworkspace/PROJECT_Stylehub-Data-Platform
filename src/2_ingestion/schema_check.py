@@ -8,7 +8,7 @@ from typing import Any
 import pandas as pd
 import yaml
 
-from src.utils.logger import get_logger
+get_logger = import_module("src.0_utils.logger").get_logger
 
 config = import_module("src.1_source.config")
 

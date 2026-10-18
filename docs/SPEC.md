@@ -21,7 +21,7 @@
 | 4. Transform | `src/4_transform/`, `dbt_project/` | dbt builds Silver facts, dimensions and Gold business tables |
 | 5. Serving | `src/5_serving/` | Streamlit health dashboard and EDA page over Silver |
 | Orchestration | `dags/` | One DAG, two branches, retries and two-hour task timeout |
-| Shared | `src/utils/logger.py` | One colored console logger with plain daily files |
+| Shared | `src/0_utils/logger.py` | One colored console logger with plain daily files |
 
 ## DAG `stylehub_daily`
 
