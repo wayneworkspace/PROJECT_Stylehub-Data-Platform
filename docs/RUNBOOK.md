@@ -61,6 +61,7 @@ Then set the GitHub variables (`TERRAFORM.md` section 2). For resources made bef
 ```bash
 uv run python -m src.1_source.load_csv          # course CSVs in data/raw_data -> BigQuery source
 uv run python -m src.3_storage.events_bronze    # build events_partitioned (scans about 15 GB, once)
+uv run dotenv -f secrets/.env run -- dbt build --project-dir dbt_project --profiles-dir dbt_project --log-path logs/dbt --select tag:events   # fact_events, once
 ```
 
 ### 1.5 Start the services

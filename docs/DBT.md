@@ -27,12 +27,15 @@ P="--project-dir dbt_project --profiles-dir dbt_project"
 |---|---|---|---|
 | `silver` | `staging/stylehub` | `stylehub_staging` | view |
 | `silver` | `intermediate`, `marts/core`, snapshot `products_history` | `stylehub_silver` | view / table / snapshot |
+| `events` (not in any DAG step) | `marts/core/fact_events` and its tests | `stylehub_silver` | incremental table |
 | `gold` | `marts/reporting` | `stylehub_gold` | table |
 | `pg_silver` | `staging/stylehub_pg` | `stylehub_staging` | view |
 | `pg_silver` | `marts/pg_core` | `stylehub_silver` | table |
 | `pg_gold` | `marts/pg_reporting`, test `pg_gold_matches_silver` | `stylehub_gold` | table |
 
 Staging views still hold email and location: keep analysts on Silver and Gold.
+
+Events are course data loaded once, so every layer build runs with `--exclude tag:events`. After a new events load, build them by hand: `$DBT build $P --log-path logs/dbt --select tag:events`.
 
 ## 3. Operate
 

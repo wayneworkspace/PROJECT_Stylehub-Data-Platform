@@ -121,4 +121,4 @@ jobs:
         run: |
           uv sync --frozen --extra dbt
           uv run dbt build --project-dir dbt_project --profiles-dir dbt_project --log-path logs/dbt \
-            --fail-fast --indirect-selection cautious
+            --fail-fast --indirect-selection cautious --exclude tag:events

@@ -36,6 +36,9 @@ def build_command(layer: str) -> list[str]:
         "cautious",
         "--select",
         f"tag:{layer}",
+        # Static course events are built by hand, not nightly (fact_events.sql).
+        "--exclude",
+        "tag:events",
     ]
 
 

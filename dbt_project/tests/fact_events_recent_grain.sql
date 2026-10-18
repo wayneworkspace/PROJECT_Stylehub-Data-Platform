@@ -1,6 +1,6 @@
 -- fact_events grain: event_id unique and not NULL, recent days.
 -- Any row returned here is a failure.
-{{ config(tags=['silver']) }}
+{{ config(tags=['events']) }}
 
 WITH recent AS (
   SELECT event_id

@@ -43,7 +43,7 @@ Normal runs go through Airflow. Use these for one-time loads and debugging.
 
 ```bash
 uv run python -m src.1_source.load_csv          # one time: course CSVs in data/raw_data -> BigQuery source
-uv run python -m src.3_storage.events_bronze    # one time: build events_partitioned (scans about 15 GB)
+uv run python -m src.3_storage.events_bronze    # one time: build events_partitioned (scans about 15 GB); then dbt --select tag:events
 
 # One pipeline step for one data day; steps: ingest bronze silver gold pg_ingest pg_bronze pg_silver pg_gold
 uv run python -c "from importlib import import_module; import_module('src.4_transform.run_daily').run_step('2026-10-16', 'pg_ingest', 'manual-debug')"
