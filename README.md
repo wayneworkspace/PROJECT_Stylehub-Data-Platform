@@ -44,7 +44,7 @@ Every step attempt is recorded in stylehub_ops.pipeline_runs; failures post to D
 | --- | --- | --- |
 | **Cloud / Warehouse** | Google Cloud Storage, BigQuery | GCS keeps every raw file cheaply; BigQuery gives partitions, clustering and a per-query bytes cap |
 | **Sources** | SQLAlchemy, psycopg2, pandas | Chunked, consistent `REPEATABLE READ` reads from Postgres straight into DataFrames |
-| **Transformation** | dbt (dbt-bigquery) | Modular SQL with tests, contracts, unit tests, snapshots and lineage |
+| **Transformation** | dbt (dbt-bigquery), `dbt_utils` | Modular SQL with tests, contracts, unit tests, snapshots, seeds, exposures and lineage; `dbt_utils` gives ready generic tests |
 | **Orchestration** | Apache Airflow 3 | Daily schedule, retries, timeouts and backfills with clear task dependencies |
 | **Monitoring** | Discord webhook, Cloud Monitoring | A chat message reaches people at once; the log metric also catches failures outside Airflow, such as dbt in CD |
 | **Serving** | Streamlit, Altair | A Python-only dashboard; Altair charts ship with Streamlit, no extra dependency |
@@ -79,6 +79,7 @@ cd PROJECT_Stylehub-Data-Platform
 
 # 2. Install the environment and dependencies
 uv sync --extra dev --extra dbt --extra serving
+uv run dbt deps --project-dir dbt_project --profiles-dir dbt_project   # dbt_utils
 
 # 3. Configure environment variables
 copy .env.example secrets\.env   # fill in every value; keep secrets/ out of Git

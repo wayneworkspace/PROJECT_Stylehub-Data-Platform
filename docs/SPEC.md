@@ -35,7 +35,7 @@
 | `pg_bronze` | Changed rows land in never-expiring Bronze day partitions | `pg_ingest` |
 | `pg_reconcile` | Ids in Bronze but gone from Postgres go to `pg_deleted_ids` | `pg_bronze` |
 | `pg_silver` | dbt keeps newest row per id without deleted ids, SCD2 product history, cost at sale | `pg_reconcile` |
-| `pg_gold` | dbt builds Buổi 5 tables, profit at sale cost, published monthly revenue, Gold-Silver check | `pg_silver` |
+| `pg_gold` | dbt builds Buổi 5 tables, profit at sale cost, revenue by region, published monthly revenue, Gold-Silver check | `pg_silver` |
 | `freshness` | Fails and alerts when a Bronze table is older than 26 hours | `gold`, `pg_gold` |
 
 ## DAG `stylehub_api`
@@ -83,7 +83,8 @@
 | Empty Bronze day fails CSV branch loudly | `src/4_transform/run_daily.py` | Error stops run |
 | Every Silver id unique and not null | dbt schema tests | Error stops run |
 | Order status within the five known values | dbt `accepted_values` | Error stops run |
-| Item `amount` equals `sale_price` times `quantity` | `tests/pg_order_items_amount_matches.sql` | Error stops run |
+| Item `amount` equals `sale_price` times `quantity` | `dbt_utils.expression_is_true` on `pg_fact_order_items` | Error stops run |
+| Every user country has a row in the `country_regions` seed | dbt `relationships` | Warning only |
 | Gold revenue totals equal Silver revenue total | `tests/pg_gold_matches_silver.sql` | Error stops run |
 | Recent `fact_events` grain without scanning 15 GB | `tests/fact_events_recent_grain.sql` | Error stops run |
 | Product history has one current row, no gaps or overlaps | `tests/pg_products_history_is_continuous.sql` | Error stops run |

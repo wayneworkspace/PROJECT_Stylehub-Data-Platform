@@ -45,6 +45,8 @@ Each row: the message you see, why it happens, and the fix. Commands run from th
 
 | Error message | Cause | Fix |
 |---|---|---|
+| `dbt found 1 package(s) specified in packages.yml, but only 0 package(s) installed` | `dbt deps` was not run | `uv run dbt deps --project-dir dbt_project --profiles-dir dbt_project` (the image and CI run it) |
+| `relationships_pg_dim_users_country__country__ref_country_regions_` WARN | A new country appeared | Add it to `dbt_project/seeds/country_regions.csv` |
 | `log-path config in dbt_project.yml has been deprecated` | dbt 1.12 wants a CLI flag | Pass `--log-path logs/dbt`; never set it in the YAML |
 | `requirements.txt matches uv.lock` step fails | A dependency changed without export | Run the `uv export` command above and commit |
 | `Required test coverage of 100.0% not reached` | New code without a test | Add a test with the fakes in `tests/test_stages.py` |
