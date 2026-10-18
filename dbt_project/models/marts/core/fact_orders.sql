@@ -1,7 +1,8 @@
 -- One row per order; order_date is the day it was placed.
 
+-- Monthly partitions: daily ones held about 50 rows each and slowed every write.
 {{ config(
-    partition_by={'field': 'order_date', 'data_type': 'date'}
+    partition_by={'field': 'order_date', 'data_type': 'date', 'granularity': 'month'}
 ) }}
 
 SELECT

@@ -1,8 +1,9 @@
 -- One row per unit sold, partitioned by the order's date.
 -- Columns are listed so new Bronze columns stay out of marts.
 
+-- Monthly partitions: daily ones held about 50 rows each and slowed every write.
 {{ config(
-    partition_by={'field': 'order_date', 'data_type': 'date'},
+    partition_by={'field': 'order_date', 'data_type': 'date', 'granularity': 'month'},
     cluster_by=['order_id', 'product_id']
 ) }}
 

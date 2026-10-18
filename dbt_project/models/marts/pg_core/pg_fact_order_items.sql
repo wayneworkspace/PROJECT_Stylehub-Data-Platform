@@ -1,7 +1,8 @@
 -- One row per order item; total_cost uses today's product cost.
 
+-- Monthly partitions: daily ones held about 50 rows each and slowed every write.
 {{ config(
-    partition_by={'field': 'order_date', 'data_type': 'date'},
+    partition_by={'field': 'order_date', 'data_type': 'date', 'granularity': 'month'},
     cluster_by=['order_id', 'product_id']
 ) }}
 
