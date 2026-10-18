@@ -66,6 +66,8 @@ Each row: the message you see, why it happens, and the fix. Commands run from th
 | `Cloud Resource Manager API has not been used` | API is off in the project | First apply enables it; or `gcloud services enable cloudresourcemanager.googleapis.com` |
 | `Error acquiring the state lock` | Another plan or apply is running | Wait; `terraform force-unlock <id>` only if it crashed |
 | `Failed to get existing workspaces: bucket doesn't exist` | State bucket not created | `gcloud storage buckets create gs://<state-bucket> --location=asia-southeast1` |
+| VM starts but Airflow is missing | The startup script failed | `sudo journalctl -u google-startup-scripts` on the VM; usually the secret has no version yet |
+| `Permission denied on secret stylehub-dotenv` on the VM | Secret IAM not applied yet | Merge and let CD apply; the VM uses `sa-pipeline` |
 | CI plan step skipped | `WIF_PLAN_SERVICE_ACCOUNT` variable not set | Set the variables from `terraform output github_variables` |
 
 ## Products API

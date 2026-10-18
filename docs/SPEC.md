@@ -9,7 +9,7 @@
 | Destination | GCS Raw Zone plus BigQuery Bronze, Silver, Gold datasets |
 | Schedule | `stylehub_daily` at 02:00 UTC, `stylehub_api` at 02:30 UTC |
 | Consumers | Analysts read Gold; Streamlit shows health and EDA |
-| Environment | Local Docker today; one GCP project, asia-southeast1 region |
+| Environment | Local Docker today; optional Airflow VM in Terraform (off); one GCP project, asia-southeast1 |
 
 ## Pipeline stages
 
@@ -113,7 +113,7 @@
 
 | Rule | Specification |
 |---|---|
-| Secrets | Only in git-ignored `secrets/.env` (database URL, Discord webhook); `SecretStr` hides passwords |
+| Secrets | Git-ignored `secrets/.env` locally; Secret Manager `stylehub-dotenv` for the VM, value added by hand; `SecretStr` hides passwords |
 | Personal data | Names and addresses dropped; email hashed in dimensions |
 | GitHub login | Workload Identity Federation tokens, no JSON keys stored |
 | Apply rights | Terraform apply account usable only from `main` branch |
