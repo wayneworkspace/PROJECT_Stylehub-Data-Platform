@@ -73,6 +73,14 @@ def step_pg_bronze(data_date: str, cfg: config.Settings) -> StepOutcome:
     return StepOutcome(sum(by_table.values()), {"rows_by_table": by_table})
 
 
+def step_api_bronze(data_date: str, cfg: config.Settings) -> StepOutcome:
+    # The API DAG runs this only after at least one page had rows.
+    rows = load_bronze.load_day("api_products", data_date, cfg)
+    if rows == 0:
+        raise RuntimeError(f"api_bronze: no Raw file for {data_date}; did fetch_page run?")
+    return StepOutcome(rows, {"rows_by_table": {"api_products": rows}})
+
+
 def step_dbt(layer: str, data_date: str, cfg: config.Settings) -> StepOutcome:
     # dbt rebuilds the whole layer, so the date is not used.
     return StepOutcome(detail=run_dbt.run_dbt(layer))
@@ -88,6 +96,8 @@ STEPS = {
     "pg_bronze": step_pg_bronze,
     "pg_silver": partial(step_dbt, "pg_silver"),
     "pg_gold": partial(step_dbt, "pg_gold"),
+    "api_bronze": step_api_bronze,  # used by the stylehub_api DAG
+    "api_silver": partial(step_dbt, "api_silver"),
 }
 
 
