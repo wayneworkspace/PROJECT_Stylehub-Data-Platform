@@ -22,6 +22,12 @@ vars:
   # Order statuses that are not revenue (revenue_order_filter macro).
   revenue_excluded_statuses: ['Cancelled']
 
+seeds:
+  stylehub:
+    # Small lookup tables; built by the pg_silver step.
+    +schema: "{{ env_var('BQ_SILVER', 'stylehub_silver') }}"
+    +tags: ["pg_silver"]
+
 models:
   stylehub:
     # Tags pick the DAG step; they add up, so they sit on leaf folders.

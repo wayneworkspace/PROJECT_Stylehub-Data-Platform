@@ -13,6 +13,14 @@ models:
     columns:
       - name: id
         data_tests: [unique, not_null]
+      - name: country
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('country_regions')
+                field: country
+              config:
+                severity: warn  # a new country needs a row in seeds/country_regions.csv
 
   - name: pg_fact_orders
     description: One row per order (grain).
@@ -37,6 +45,10 @@ models:
 
   - name: pg_fact_order_items
     description: One row per order item (grain). amount = sale_price * quantity.
+    data_tests:
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "amount = sale_price * quantity"
     columns:
       - name: id
         data_tests: [unique, not_null]
@@ -61,6 +73,10 @@ models:
       valid_to is 9999-12-31 for the current row; the first version starts at 1970-01-01, so
       sales before the history began use it. tests/pg_products_history_is_continuous.sql
       checks one current row and no gaps or overlaps.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [product_id, valid_from]
     columns:
       - name: product_id
         data_tests: [not_null]

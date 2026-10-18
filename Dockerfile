@@ -20,5 +20,8 @@ RUN uv venv /opt/venv/stylehub --python /usr/local/bin/python \
 COPY --chown=airflow src /opt/stylehub/src
 COPY --chown=airflow include /opt/stylehub/include
 COPY --chown=airflow dbt_project /opt/stylehub/dbt_project
+# Packages from package-lock.yml (dbt_utils); deps needs no warehouse connection.
+RUN GCP_PROJECT_ID=build /opt/venv/stylehub/bin/dbt deps --project-dir /opt/stylehub/dbt_project \
+    --profiles-dir /opt/stylehub/dbt_project --log-path /tmp/dbt-logs
 COPY --chown=airflow dags /opt/airflow/dags
 COPY --chown=airflow config /opt/airflow/config

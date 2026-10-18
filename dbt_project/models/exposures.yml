@@ -1,0 +1,17 @@
+version: 2
+
+# Where Silver and Gold are used outside dbt; shows in the lineage graph.
+exposures:
+  - name: stylehub_dashboard
+    label: StyleHub Streamlit dashboard
+    type: dashboard
+    maturity: medium
+    url: http://localhost:8501
+    description: Pipeline health page and the EDA page over 90 days of Postgres order items.
+    depends_on:
+      - ref('pg_fact_order_items')
+      - ref('pg_dim_products')
+      - ref('pg_dim_users')
+    owner:
+      name: Data engineering
+      email: data-engineering@example.com

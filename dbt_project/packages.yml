@@ -1,0 +1,4 @@
+# dbt packages; `dbt deps` installs them into dbt_packages/ (git-ignored).
+packages:
+  - package: dbt-labs/dbt_utils
+    version: [">=1.3.0", "<2.0.0"]
