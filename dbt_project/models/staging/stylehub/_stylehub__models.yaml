@@ -1,31 +1,32 @@
 version: 2
 
-# One staging model per Bronze table; grain test on each id.
+# One staging model per Bronze table.
+# No unique test: QUALIFY ROW_NUMBER() = 1 keeps one row per key; marts test it.
 # Events grain is tested once, on fact_events, to save scans.
 models:
   - name: stg_stylehub__orders
     description: One row per order. Latest version of each order_id.
     columns:
       - name: order_id
-        data_tests: [unique, not_null]
+        data_tests: [not_null]
 
   - name: stg_stylehub__order_items
     description: One row per order item. Latest version of each id.
     columns:
       - name: id
-        data_tests: [unique, not_null]
+        data_tests: [not_null]
 
   - name: stg_stylehub__products
     description: One row per product. Latest version of each id.
     columns:
       - name: id
-        data_tests: [unique, not_null]
+        data_tests: [not_null]
 
   - name: stg_stylehub__users
     description: One row per customer. Latest version of each id.
     columns:
       - name: id
-        data_tests: [unique, not_null]
+        data_tests: [not_null]
 
   - name: stg_stylehub__events
     description: One row per event, cleaned. A view over the partitioned Bronze table.

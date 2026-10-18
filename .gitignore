@@ -17,7 +17,6 @@ dbt_project/.user.yml
 .pytest_cache/
 coverage.xml
 
-docs/syllabus
 CLAUDE.md
 RULES.md
 
@@ -28,7 +27,11 @@ RULES.md
 *.tfvars
 !*.tfvars.example
 tfplan
-docs/EDA
-docs/assets
 
 output/
+
+# Local guides and course material; only these three docs go to Git.
+docs/*
+!docs/ERRORS.md
+!docs/RUNBOOK.md
+!docs/SPEC.md

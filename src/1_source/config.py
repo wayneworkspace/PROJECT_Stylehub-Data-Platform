@@ -29,9 +29,7 @@ class Settings(BaseSettings):
     source: str = Field("stylehub", validation_alias="BQ_SOURCE")  # course source tables
     bronze: str = Field("stylehub_bronze", validation_alias="BQ_BRONZE")
     silver: str = Field("stylehub_silver", validation_alias="BQ_SILVER")
-    gold: str = Field("stylehub_gold", validation_alias="BQ_GOLD")
     ops: str = Field("stylehub_ops", validation_alias="BQ_OPS")  # holds pipeline_runs
-    staging: str = Field("stylehub_staging", validation_alias="BQ_STAGING")  # personal-data views
     location: str = Field("asia-southeast1", validation_alias="GCP_LOCATION")
     # Max bytes one query may bill; events scans ~15 GB.
     max_bytes_billed: PositiveInt = Field(50_000_000_000, validation_alias="BQ_MAX_BYTES_BILLED")

@@ -90,7 +90,7 @@ docker compose --env-file secrets/.env --profile airflow up -d --build   # Airfl
 docker compose --env-file secrets/.env --profile serving up -d --build   # dashboard on http://localhost:8501
 ```
 
-The pipeline runs only through Airflow. `docs/RUNBOOK.md` covers setup and daily operation; `docs/AIRFLOW.md`, `DOCKER.md`, `PYTHON.md`, `DBT.md` and `TERRAFORM.md` list the commands per tool.
+The pipeline runs only through Airflow. `docs/RUNBOOK.md` covers setup and daily operation; `docs/ERRORS.md` lists error messages and fixes.
 
 ## Code Quality & CI/CD
 
@@ -116,7 +116,7 @@ include/sql/    # Plain SQL run by Python (events build, dashboard queries)
 infra/          # Terraform and the deploy script
 config/         # Airflow logging config
 tests/          # pytest unit tests and the DAG integrity test
-docs/           # RUNBOOK, per-tool command guides, ERRORS, SPEC
+docs/           # RUNBOOK.md, ERRORS.md, SPEC.md (other docs stay local)
 ```
 
 > **Note:** Never commit `secrets/`, keys, `.env` files, Terraform state or the course data. Work on a feature branch (`feature/...`, `fix/...`) and merge through a Pull Request that passes `ci_test.yml`. Errors and fixes are in `docs/ERRORS.md`.
