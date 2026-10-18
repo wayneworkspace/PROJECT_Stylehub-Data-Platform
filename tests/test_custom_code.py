@@ -2,12 +2,14 @@
 
 from datetime import datetime
 from importlib import import_module
+from types import SimpleNamespace as NS
 
 import pandas as pd
 import pytest
 import sqlalchemy
 from google.api_core import exceptions
 
+config = import_module("src.1_source.config")
 utils = import_module("src.1_source.utils")
 retry = import_module("src.1_source.retry")
 raw_writer = import_module("src.2_ingestion.raw_writer")
@@ -132,3 +134,18 @@ def test_jev_review_asks_one_or_two_judgments_per_finding() -> None:
         "v1.exploitable",
         "v1.severity",
     ]
+
+
+def test_dry_run_report_lists_every_query(monkeypatch) -> None:
+    report = import_module("include.scripts.dry_run_report")
+    cfg = config.Settings(GCP_PROJECT_ID="proj", GCS_BUCKET="bucket")
+    asked: list[tuple[str, bool]] = []
+
+    def query(sql: str, job_config: object) -> NS:
+        asked.append((sql, job_config.dry_run))
+        return NS(total_bytes_processed=2_500_000)
+
+    table = report.report(NS(query=query), cfg)
+    assert table.count("| 2.5 |") == len(report.QUERIES) + len(report.SERVING_FILES)
+    assert all(dry for _, dry in asked)
+    assert "`proj.stylehub_bronze.events_partitioned`" in asked[0][0]
