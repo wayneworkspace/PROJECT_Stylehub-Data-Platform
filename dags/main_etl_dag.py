@@ -16,7 +16,7 @@ from utils_dag import (
 
 # Two branches; names match STEPS in run_daily.py.
 CSV_STEPS = ["ingest", "bronze", "silver", "gold"]
-PG_STEPS = ["pg_ingest", "pg_bronze", "pg_silver", "pg_gold"]
+PG_STEPS = ["pg_ingest", "pg_bronze", "pg_reconcile", "pg_silver", "pg_gold"]
 
 default_args = {
     "owner": "data-engineering",

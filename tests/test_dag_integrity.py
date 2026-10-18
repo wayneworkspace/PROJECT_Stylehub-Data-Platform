@@ -15,7 +15,7 @@ def test_dags_load() -> None:
     assert not bag.import_errors, bag.import_errors
     dag = bag.dags["stylehub_daily"]
     csv = ["ingest", "bronze", "silver", "gold"]
-    pg = ["pg_ingest", "pg_bronze", "pg_silver", "pg_gold"]
+    pg = ["pg_ingest", "pg_bronze", "pg_reconcile", "pg_silver", "pg_gold"]
     assert set(dag.task_ids) == {*csv, *pg, "freshness"}
     for branch in (csv, pg):
         for before, after in pairwise(branch):

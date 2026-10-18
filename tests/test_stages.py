@@ -431,6 +431,7 @@ def test_run_daily_runs_every_step(cfg, monkeypatch) -> None:
     monkeypatch.setattr(run_daily.events_bronze, "events_table_exists", lambda c: True)
     monkeypatch.setattr(run_daily.load_bronze, "load_day", lambda *a, **k: 3)
     monkeypatch.setattr(run_daily.run_dbt, "run_dbt", lambda layer: {"layer": layer})
+    monkeypatch.setattr(run_daily.reconcile, "reconcile", lambda c: {"orders": 1})
     for step in run_daily.STEPS:
         run_daily.run_step("2026-10-01", step, "run-1")
     assert recorded == [(step, "success") for step in run_daily.STEPS]
@@ -613,3 +614,26 @@ def test_api_products_frame_and_page_ingest(cfg, monkeypatch) -> None:
         "raw/stylehub/api_products/date=2026-10-17/batch_id=b1/part_000000.parquet"
     ]
     assert api_products.ingest_page(page | {"skip": 50}, "2026-10-17") == 0
+
+
+def test_reconcile_writes_the_deleted_ids(cfg, monkeypatch) -> None:
+    reconcile = import_module("src.3_storage.reconcile")
+    client = FakeBQ()
+    client.query_rows = [NS(id=1), NS(id=2), NS(id=3)]  # Bronze ids of every table
+    loaded: list = []
+    client.load_table_from_dataframe = lambda df, target, job_config: (
+        loaded.append((target, df, job_config.write_disposition)) or job()
+    )
+    monkeypatch.setattr(config, "bq_client", lambda cfg: client)
+
+    class Conn(FakePg):
+        def execute(self, query: object, params: dict | None = None) -> NS:
+            return NS(scalars=lambda: iter([1, 3]))  # Postgres lost id 2
+
+    monkeypatch.setattr(config, "pg_engine", lambda cfg: Conn(0))
+    counts = reconcile.reconcile(cfg)
+    assert counts == dict.fromkeys(pg_tables.PG_TABLES, 1)
+    target, frame, disposition = loaded[0]
+    assert target == "proj.stylehub_bronze.pg_deleted_ids" and disposition == "WRITE_TRUNCATE"
+    assert sorted(frame["table_name"]) == sorted(pg_tables.PG_TABLES)
+    assert set(frame["id"]) == {2}
