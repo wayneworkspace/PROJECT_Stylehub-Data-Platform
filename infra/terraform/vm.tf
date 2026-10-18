@@ -36,11 +36,12 @@ resource "google_compute_instance" "airflow" {
     enable-oslogin = "TRUE"
   }
 
-  metadata_startup_script = templatefile("${path.module}/vm_startup.sh.tftpl", {
+  # replace: a Windows checkout has CRLF line ends, which bash cannot run.
+  metadata_startup_script = replace(templatefile("${path.module}/vm_startup.sh.tftpl", {
     project_id        = var.project_id
     secret_id         = google_secret_manager_secret.dotenv.secret_id
     github_repository = var.github_repository
-  })
+  }), "\r", "")
 
   depends_on = [google_project_service.apis, google_secret_manager_secret_iam_member.pipeline_reads_dotenv]
 }
