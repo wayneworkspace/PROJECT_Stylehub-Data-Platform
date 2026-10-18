@@ -1,0 +1,7 @@
+# Copy to terraform.tfvars (git-ignored) and fill in your values.
+project_id        = "your-project-id"
+bucket_name       = "your-raw-bucket"
+state_bucket      = "your-terraform-state-bucket"
+github_repository = "owner/repo"
+# bucket_location = "ASIA" # only if the existing bucket has another location
+# source_location = "US"   # only if the existing source dataset has another location
