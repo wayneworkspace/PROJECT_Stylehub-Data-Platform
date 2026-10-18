@@ -1,0 +1,13 @@
+# BigQuery connection; every value comes from environment variables.
+stylehub:
+  target: prod
+  outputs:
+    prod:
+      type: bigquery
+      method: oauth  # Application Default Credentials: key file, gcloud login or VM account
+      project: "{{ env_var('GCP_PROJECT_ID') }}"
+      dataset: "{{ env_var('BQ_SILVER', 'stylehub_silver') }}"
+      location: "{{ env_var('GCP_LOCATION', 'asia-southeast1') }}"
+      threads: 4
+      job_retries: 3  # retry BigQuery jobs that fail for a short time
+      maximum_bytes_billed: "{{ env_var('BQ_MAX_BYTES_BILLED', '50000000000') | as_number }}"

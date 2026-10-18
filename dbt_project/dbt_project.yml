@@ -1,0 +1,56 @@
+# dbt builds Silver and Gold; it only reads Bronze.
+name: stylehub
+version: "1.0.0"
+config-version: 2
+profile: stylehub
+
+model-paths: ["models"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+
+clean-targets: ["target", "dbt_packages"]
+
+# Colored text on screen, JSON in files; --log-path points to logs/dbt.
+flags:
+  use_colors: true
+  log_format: default
+  log_format_file: json
+
+vars:
+  # Days of fact_events rebuilt each run, catching late events.
+  events_lookback_days: 3
+  # Order statuses that are not revenue (revenue_order_filter macro).
+  revenue_excluded_statuses: ['Cancelled']
+
+models:
+  stylehub:
+    # Tags pick the DAG step; they add up, so they sit on leaf folders.
+    # Staging has its own dataset because it still holds personal data.
+    staging:
+      +materialized: view
+      +schema: "{{ env_var('BQ_STAGING', 'stylehub_staging') }}"
+      stylehub:
+        +tags: ["silver"]
+      stylehub_pg:
+        +tags: ["pg_silver"]
+    intermediate:
+      +materialized: view
+      +schema: "{{ env_var('BQ_SILVER', 'stylehub_silver') }}"
+      +tags: ["silver"]
+    marts:
+      core:
+        +materialized: table
+        +schema: "{{ env_var('BQ_SILVER', 'stylehub_silver') }}"
+        +tags: ["silver"]
+      reporting:
+        +materialized: table
+        +schema: "{{ env_var('BQ_GOLD', 'stylehub_gold') }}"
+        +tags: ["gold"]
+      pg_core:
+        +materialized: table
+        +schema: "{{ env_var('BQ_SILVER', 'stylehub_silver') }}"
+        +tags: ["pg_silver"]
+      pg_reporting:
+        +materialized: table
+        +schema: "{{ env_var('BQ_GOLD', 'stylehub_gold') }}"
+        +tags: ["pg_gold"]

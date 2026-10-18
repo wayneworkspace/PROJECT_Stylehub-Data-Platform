@@ -1,80 +1,58 @@
-# Everything that runs in Docker, in ONE file. Nothing starts unless you pick a profile.
-# Run from the project folder (PowerShell):
-#   pipeline  docker compose run --rm pipeline python -m stylehub.orchestration.run_daily --date 2026-10-01
-#   airflow   docker compose --env-file secrets/.env --profile airflow up -d --build
-#             docker compose --env-file secrets/.env --profile airflow down
-#   serving   docker compose --env-file secrets/.env --profile serving up -d --build   (http://localhost:8501)
-# The images CONTAIN the project code: after a code change, rebuild (--build).
-# The AIRFLOW_ values in secrets/.env are for a throwaway local container. Never reuse them.
+# Local Docker setup; nothing starts unless you pick a profile.
+#   airflow  docker compose --env-file secrets/.env --profile airflow up -d --build  (localhost:8080)
+#   serving  docker compose --env-file secrets/.env --profile serving up -d --build  (localhost:8501)
+# Images contain the code, so rebuild with --build after changes.
+# AIRFLOW_ values in secrets/.env are for a throwaway local container.
 
 x-airflow-common: &airflow-common
   profiles: ["airflow"]
   build:
     context: .
-    dockerfile: deploy/airflow/Dockerfile
-  environment: &airflow-env
+    dockerfile: Dockerfile
+  environment:
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
     AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/dags
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${AIRFLOW_DB_PASSWORD:-}@airflow-db/airflow
-    # Airflow 3 has one shared secret for the API server and the scheduler. Two different
-    # secrets would make every task fail to sign in to the API. The same value is used for the
-    # token (jwt_secret) and for the web sessions (secret_key).
+    # One shared secret, or tasks cannot sign in to the API.
     AIRFLOW__API__SECRET_KEY: ${AIRFLOW_SECRET_KEY:-}
     AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_SECRET_KEY:-}
-    # Where a running task asks the API server for its work and reports its state.
     AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-apiserver:8080/execution/
-    # Login: one admin user. The password file is written from AIRFLOW_ADMIN_PASSWORD when the
-    # API server starts (see airflow-apiserver below).
+    # One admin user; the API server writes its password file.
     AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: ${AIRFLOW_ADMIN_USER:-admin}:admin
     AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_PASSWORDS_FILE: /opt/airflow/simple_auth_manager_passwords.json
-    # Encrypts the passwords that Airflow stores (connections, variables). Empty = stored as plain text.
-    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:-}
-    # How the DAG starts the pipeline (see deploy/airflow/dags/stylehub_daily.py).
-    STYLEHUB_HOME: /opt/stylehub
-    STYLEHUB_RUN: uv run --no-sync
+    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:-}  # encrypts stored connections and variables
+    AIRFLOW_DB_PASSWORD: ${AIRFLOW_DB_PASSWORD:-}
+    AIRFLOW_ADMIN_USER: ${AIRFLOW_ADMIN_USER:-admin}
+    AIRFLOW_ADMIN_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD:-}
+    STYLEHUB_HOME: /opt/stylehub  # see dags/utils_dag.py
+    AIRFLOW__LOGGING__LOGGING_CONFIG_CLASS: config.airflow_local_settings.LOGGING_CONFIG
+    PYTHONPATH: /opt/airflow  # makes config.airflow_local_settings importable
+    DBT_USE_COLORS: "false"  # task logs are files, so no color codes
   volumes:
-    # No project folder and no DAG folder here: code and DAG are inside the image
-    # (deploy/airflow/Dockerfile), so what runs on your laptop is what runs on the VM.
-    # Only the secrets and the Airflow logs are mounted. On a VM with an attached service account,
-    # remove the secrets line: the key file is only for a laptop.
+    # Secrets, logging config and logs; drop secrets on a VM.
     - ./secrets:/opt/stylehub/secrets:ro
-    - airflow-logs:/opt/airflow/logs
-  depends_on:
+    - ./config:/opt/airflow/config:ro
+    - ./logs/airflow:/opt/airflow/logs
+    - ./logs:/opt/stylehub/logs  # custom_scripts and dbt logs
+  depends_on: &after-db
     airflow-db:
       condition: service_healthy
 
 services:
-  # ---- profile pipeline: the pipeline image ------------------------------------------------------
-  pipeline:
-    profiles: ["pipeline"]
-    build:
-      context: .
-      dockerfile: deploy/pipeline/Dockerfile
-    env_file:
-      - path: secrets/.env
-        required: false
-    volumes:
-      - ./secrets:/app/secrets:ro
-
-  # ---- profile serving: the monitoring dashboard (Streamlit) -----------------------------------
   dashboard:
     profiles: ["serving"]
     build:
       context: .
-      dockerfile: deploy/pipeline/Dockerfile
-      args:
-        EXTRAS: --extra serving
-    command: streamlit run src/stylehub/serving/dashboard.py --server.address 0.0.0.0
+      dockerfile: Dockerfile.dashboard
     ports:
-      - "8501:8501"
+      - "127.0.0.1:8501:8501"  # localhost only: the dashboard has no login
     env_file:
       - path: secrets/.env
         required: false
     volumes:
       - ./secrets:/app/secrets:ro
 
-  # ---- profile airflow --------------------------------------------------------------------------
   airflow-db:
     profiles: ["airflow"]
     image: postgres:16
@@ -90,8 +68,7 @@ services:
       timeout: 5s
       retries: 10
 
-  # Runs once: checks the values from secrets/.env and creates the Airflow tables.
-  # The other containers wait for it, so they never start with an empty password.
+  # Runs once: checks the secrets, then creates the Airflow tables.
   airflow-init:
     <<: *airflow-common
     entrypoint: /bin/bash
@@ -103,13 +80,8 @@ services:
         : "$${AIRFLOW__API__SECRET_KEY:?set AIRFLOW_SECRET_KEY in secrets/.env}" &&
         : "$${AIRFLOW__CORE__FERNET_KEY:?set AIRFLOW_FERNET_KEY in secrets/.env}" &&
         airflow db migrate
-    environment:
-      <<: *airflow-env
-      AIRFLOW_DB_PASSWORD: ${AIRFLOW_DB_PASSWORD:-}
-      AIRFLOW_ADMIN_USER: ${AIRFLOW_ADMIN_USER:-admin}
-      AIRFLOW_ADMIN_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD:-}
 
-  # The web page and the API that tasks talk to. Airflow 3 replaced the "webserver" by this.
+  # Web page and task API; replaces the Airflow 2 webserver.
   airflow-apiserver:
     <<: *airflow-common
     entrypoint: /bin/bash
@@ -119,46 +91,30 @@ services:
         python -c "import json, os; json.dump({os.environ['AIRFLOW_ADMIN_USER']:
         os.environ['AIRFLOW_ADMIN_PASSWORD']}, open('/opt/airflow/simple_auth_manager_passwords.json', 'w'))" &&
         exec airflow api-server
-    environment:
-      <<: *airflow-env
-      AIRFLOW_ADMIN_USER: ${AIRFLOW_ADMIN_USER:-admin}
-      AIRFLOW_ADMIN_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD:-}
-    depends_on:
-      airflow-db:
-        condition: service_healthy
+    depends_on: &after-init
+      <<: *after-db
       airflow-init:
         condition: service_completed_successfully
     ports:
-      # Localhost only, so other machines on your network cannot open it.
-      # If port 8080 is taken on your computer, set AIRFLOW_WEB_PORT=8081 in secrets/.env.
-      - "127.0.0.1:${AIRFLOW_WEB_PORT:-8080}:8080"
+      - "127.0.0.1:${AIRFLOW_WEB_PORT:-8080}:8080"  # localhost only; change the port if taken
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:8080/api/v2/version"]
       interval: 30s
       timeout: 10s
       retries: 5
 
-  # Reads the DAG files and tells the scheduler which DAGs exist. Airflow 3 runs it on its own.
   airflow-dag-processor:
     <<: *airflow-common
     command: dag-processor
-    depends_on:
-      airflow-db:
-        condition: service_healthy
-      airflow-init:
-        condition: service_completed_successfully
+    depends_on: *after-init
 
   airflow-scheduler:
     <<: *airflow-common
     command: scheduler
     depends_on:
-      airflow-db:
-        condition: service_healthy
-      airflow-init:
-        condition: service_completed_successfully
+      <<: *after-init
       airflow-apiserver:
         condition: service_healthy
 
 volumes:
   airflow-db-data:
-  airflow-logs:

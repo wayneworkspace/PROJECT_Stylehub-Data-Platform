@@ -1,0 +1,28 @@
+# Dashboard image: Streamlit plus the serving code, no dbt.
+# Build: docker compose --env-file secrets/.env --profile serving build
+# Base image pinned by digest (read 2026-10-17): docker buildx imagetools inspect python:3.13-slim-bookworm
+FROM python:3.13-slim-bookworm@sha256:a1165e272e578941b84abc79e4ab38a0305cd12803a5c4247979ac7655f4d641
+
+ARG UV_VERSION=0.12.13
+
+ENV PYTHONUNBUFFERED=1 \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy
+
+WORKDIR /app
+
+RUN pip install --no-cache-dir "uv==${UV_VERSION}" \
+    && useradd --create-home app && chown app:app /app
+
+# Dependencies first, so this layer is reused until uv.lock changes.
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --extra serving
+
+COPY --chown=app:app src ./src
+COPY --chown=app:app include ./include
+USER app
+
+# Secrets are never baked in; mount them or use the VM account.
+ENV PATH="/app/.venv/bin:$PATH" \
+    PYTHONPATH="/app"
+CMD ["streamlit", "run", "src/5_serving/dashboard.py", "--server.address", "0.0.0.0"]

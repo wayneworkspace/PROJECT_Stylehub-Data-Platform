@@ -4,26 +4,22 @@
 __pycache__
 *.pyc
 .ruff_cache
+.pytest_cache
 .idea
+.claude
 
-# Never send secrets or data into the build context
+# Never send secrets or data into the build context.
 .env
 **/.env
 secrets
-assets
 logs
 *.json.key
-
-# Course data can be many GB. Keep it out of the build context.
 data
 
+# Not needed inside an image.
+tests
+docs
 to_delete
-# deploy/ is not needed in the pipeline image. The Airflow image needs the DAG only.
-deploy/pipeline
-deploy/airflow/README.md
-deploy/airflow/Dockerfile
-
-# Not needed inside an image: dbt writes these when it runs
-dbt/target
-dbt/logs
-dbt/.user.yml
+dbt_project/target
+dbt_project/logs
+dbt_project/.user.yml
