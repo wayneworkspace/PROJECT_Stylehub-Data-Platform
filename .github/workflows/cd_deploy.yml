@@ -1,0 +1,123 @@
+name: CD
+
+# After CI passes on main: apply infra, push the tested image, run dbt.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency: # deploys never overlap
+  group: cd-main
+  cancel-in-progress: false
+
+env:
+  PYTHON_VERSION: "3.13"
+  UV_VERSION: "0.12.13"
+  TERRAFORM_VERSION: "1.16.5"
+
+jobs:
+  terraform-apply:
+    name: Apply the reviewed Terraform plan
+    # Only successful pushes to main; fork pull requests never get here.
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      vars.WIF_APPLY_SERVICE_ACCOUNT != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      TF_VAR_project_id: ${{ vars.GCP_PROJECT_ID }}
+      TF_VAR_region: ${{ vars.GCP_REGION }}
+      TF_VAR_bucket_name: ${{ vars.GCS_BUCKET }}
+      TF_VAR_bucket_location: ${{ vars.GCS_BUCKET_LOCATION }}
+      TF_VAR_source_location: ${{ vars.BQ_SOURCE_LOCATION }}
+      TF_VAR_state_bucket: ${{ vars.TF_STATE_BUCKET }}
+      TF_VAR_github_repository: ${{ github.repository }}
+      TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.WIF_APPLY_SERVICE_ACCOUNT }}
+      - name: terraform apply
+        run: bash infra/scripts/deploy.sh apply
+
+  publish-image:
+    name: Push the tested Airflow image
+    needs: terraform-apply
+    if: >-
+      !cancelled() && needs.terraform-apply.result != 'failure' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      vars.WIF_CD_SERVICE_ACCOUNT != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read # download the CI artifact
+      id-token: write
+    env:
+      SHA: ${{ github.event.workflow_run.head_sha }}
+      IMAGE: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.AR_REPOSITORY }}/stylehub-airflow
+    steps:
+      - name: Download the image that CI tested
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: airflow-image
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Load it and check it is the tested commit
+        run: |
+          docker load --input airflow-image.tar.gz
+          docker image inspect "stylehub-airflow:$SHA" > /dev/null
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.WIF_CD_SERVICE_ACCOUNT }}
+      - name: Push the image; the tag is the commit id
+        run: |
+          gcloud auth configure-docker "${{ vars.GCP_REGION }}-docker.pkg.dev" --quiet
+          docker tag "stylehub-airflow:$SHA" "$IMAGE:$SHA"
+          docker push "$IMAGE:$SHA"
+          echo "Airflow image: \`$IMAGE:$SHA\`" >> "$GITHUB_STEP_SUMMARY"
+
+  dbt-run:
+    name: dbt build on production
+    needs: publish-image
+    if: >-
+      !cancelled() && needs.publish-image.result == 'success' &&
+      vars.WIF_PIPELINE_SERVICE_ACCOUNT != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GCP_LOCATION: ${{ vars.GCP_REGION }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.WIF_PIPELINE_SERVICE_ACCOUNT }}
+      - name: Build models and run their tests on the real datasets
+        run: |
+          uv sync --frozen --extra dbt
+          uv run dbt build --project-dir dbt_project --profiles-dir dbt_project --log-path logs/dbt \n            --fail-fast --indirect-selection cautious
