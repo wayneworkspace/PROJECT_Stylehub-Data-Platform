@@ -37,15 +37,21 @@ locals {
   project_roles = {
     "pipeline-job-user"  = { role = "roles/bigquery.jobUser", sa = "sa-pipeline" }
     "dashboard-job-user" = { role = "roles/bigquery.jobUser", sa = "sa-dashboard" }
-    "plan-viewer"        = { role = "roles/viewer", sa = "sa-terraform-plan" }
-    "plan-iam-reader"    = { role = "roles/iam.securityReviewer", sa = "sa-terraform-plan" }
-    "apply-storage"      = { role = "roles/storage.admin", sa = "sa-terraform-apply" }
-    "apply-bigquery"     = { role = "roles/bigquery.admin", sa = "sa-terraform-apply" }
-    "apply-registry"     = { role = "roles/artifactregistry.admin", sa = "sa-terraform-apply" }
-    "apply-accounts"     = { role = "roles/iam.serviceAccountAdmin", sa = "sa-terraform-apply" }
-    "apply-wif"          = { role = "roles/iam.workloadIdentityPoolAdmin", sa = "sa-terraform-apply" }
-    "apply-project-iam"  = { role = "roles/resourcemanager.projectIamAdmin", sa = "sa-terraform-apply" }
-    "apply-apis"         = { role = "roles/serviceusage.serviceUsageAdmin", sa = "sa-terraform-apply" }
+    # Plan reads metadata and IAM policies only, never table rows or files.
+    "plan-iam-reader"   = { role = "roles/iam.securityReviewer", sa = "sa-terraform-plan" }
+    "plan-apis"         = { role = "roles/serviceusage.serviceUsageViewer", sa = "sa-terraform-plan" }
+    "plan-bigquery"     = { role = "roles/bigquery.metadataViewer", sa = "sa-terraform-plan" }
+    "plan-buckets"      = { role = "roles/storage.bucketViewer", sa = "sa-terraform-plan" }
+    "plan-accounts"     = { role = "roles/iam.serviceAccountViewer", sa = "sa-terraform-plan" }
+    "plan-wif"          = { role = "roles/iam.workloadIdentityPoolViewer", sa = "sa-terraform-plan" }
+    "plan-registry"     = { role = "roles/artifactregistry.reader", sa = "sa-terraform-plan" }
+    "apply-storage"     = { role = "roles/storage.admin", sa = "sa-terraform-apply" }
+    "apply-bigquery"    = { role = "roles/bigquery.admin", sa = "sa-terraform-apply" }
+    "apply-registry"    = { role = "roles/artifactregistry.admin", sa = "sa-terraform-apply" }
+    "apply-accounts"    = { role = "roles/iam.serviceAccountAdmin", sa = "sa-terraform-apply" }
+    "apply-wif"         = { role = "roles/iam.workloadIdentityPoolAdmin", sa = "sa-terraform-apply" }
+    "apply-project-iam" = { role = "roles/resourcemanager.projectIamAdmin", sa = "sa-terraform-apply" }
+    "apply-apis"        = { role = "roles/serviceusage.serviceUsageAdmin", sa = "sa-terraform-apply" }
   }
 }
 
