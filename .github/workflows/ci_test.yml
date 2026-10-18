@@ -107,14 +107,36 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: The compose file is valid
         run: docker compose --profile airflow --profile serving config --quiet
-      - name: The dashboard image builds, imports, and is not root
+      # Layer cache in GitHub Actions: unchanged dependency layers are not rebuilt.
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build the dashboard image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: Dockerfile.dashboard
+          tags: ${{ env.DASHBOARD_IMAGE }}
+          build-args: UV_VERSION=${{ env.UV_VERSION }}
+          pull: true
+          load: true
+          cache-from: type=gha,scope=dashboard
+          cache-to: type=gha,scope=dashboard,mode=max
+      - name: The dashboard image imports and is not root
         run: |
-          docker build --pull --build-arg UV_VERSION="$UV_VERSION" -f Dockerfile.dashboard -t "$DASHBOARD_IMAGE" .
           docker run --rm "$DASHBOARD_IMAGE" python -c "import streamlit, importlib; importlib.import_module('src.5_serving.eda')"
           test "$(docker run --rm "$DASHBOARD_IMAGE" id -u)" != "0"
-      - name: The Airflow image builds and the DAG loads
+      - name: Build the Airflow image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: Dockerfile
+          tags: ${{ env.AIRFLOW_IMAGE }}
+          build-args: UV_VERSION=${{ env.UV_VERSION }}
+          pull: true
+          load: true
+          cache-from: type=gha,scope=airflow
+          cache-to: type=gha,scope=airflow,mode=max
+      - name: The DAG loads in the Airflow image
         run: |
-          docker build --pull --build-arg UV_VERSION="$UV_VERSION" -f Dockerfile -t "$AIRFLOW_IMAGE" .
           docker run --rm -v "$PWD/tests:/opt/airflow/tests:ro" --entrypoint bash "$AIRFLOW_IMAGE" -c \
             "pip install --quiet pytest && python -m pytest -q -p no:cacheprovider -o addopts='' /opt/airflow/tests/test_dag_integrity.py"
       # On main, hand the tested Airflow image to CD; CD never rebuilds.
