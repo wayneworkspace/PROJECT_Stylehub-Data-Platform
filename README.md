@@ -48,12 +48,12 @@ Every step attempt is recorded in stylehub_ops.pipeline_runs.
 ## 4. Results Achieved
 
 * **Data volume:** one daily run (data day 2026-10-16) loaded 434,986 course rows and 975,226 Postgres rows in the first full Postgres load; the partitioned `events` table holds about 108 million rows (15 GB).
-* **Performance:** course branch 259 s end to end (ingest 79 s, bronze 28 s, silver 110 s, gold 41 s); Postgres ingest 105 s and Bronze 40 s for the full first load; later runs read only one to two days of changes.
+* **Performance:** course branch 259 s end to end (ingest 79 s, bronze 28 s, silver 110 s, gold 41 s); Postgres ingest 105 s and Bronze 40 s for the full first load; the next incremental run read 81,271 Postgres rows in 25 s.
 * **Cost control:** every query is capped at 50 GB billed; `events` is partitioned by day and clustered by `event_type, product_id`; the freshness query reads free table metadata.
 * **Quality:** dbt passed 29 Silver and 13 Gold checks on the course branch and 26 Silver checks on the Postgres branch; unit tests cover 100% of 671 Python statements.
 * **Insights:** the EDA page reads 316,358 Postgres order items of the last 90 days; it found no rule violations (no negative amounts, `amount` always equals `sale_price * quantity`), and 5.7% to 9.4% IQR outliers in price, quantity and amount.
 
-*Current limitations:* runs locally in Docker with one service account key; not deployed to a VM yet. Terraform plan is verified against the project (12 imports, 41 adds, 4 in-place changes, 0 destroys) but not applied. Postgres deletes are not detected. Gold profit uses today's product cost. The first Postgres load left 0.2% of items without their order or customer (dbt warnings); later incremental runs close this gap.
+*Current limitations:* runs locally in Docker with one service account key; not deployed to a VM yet. Terraform plan is verified against the project (12 imports, 41 adds, 4 in-place changes, 0 destroys) but not applied. Postgres deletes are not detected. Gold profit uses today's product cost. The first Postgres load left some orders without their customer and some items without their order (dbt warnings); the next incremental run fixed the customers, but items without an order remain a warning.
 
 ## Quick Start
 
