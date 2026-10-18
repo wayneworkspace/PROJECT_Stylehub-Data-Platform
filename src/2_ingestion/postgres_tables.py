@@ -19,7 +19,6 @@ log = get_logger(__name__)
 PG_TABLES = ("orders", "order_items", "products", "shipments", "users")
 WATERMARK = "updated_at"  # catches new and changed rows; naive UTC time
 LOOKBACK_DAYS = 1  # re-read late writes; Silver removes the duplicates
-CHUNK_ROWS = 100_000
 
 
 class SourceRowMismatch(RuntimeError):
@@ -68,10 +67,8 @@ def extract(
             count = text(f'SELECT COUNT(*) FROM "{table}" WHERE {where}')  # noqa: S608
             expected = conn.execute(count, params).scalar_one()
             query = text(f'SELECT * FROM "{table}" WHERE {where}')  # noqa: S608
-            chunks = pd.read_sql(
-                query, conn, params=params, chunksize=CHUNK_ROWS, coerce_float=False
-            )
-            df = pd.concat(chunks, ignore_index=True)
+            # shortcut: holds the whole window in memory; stream_results if it grows big.
+            df = pd.read_sql(query, conn, params=params, coerce_float=False)
         if len(df) != expected:
             raise SourceRowMismatch(f"{table}: read {len(df)} rows, the source has {expected}")
         return df
