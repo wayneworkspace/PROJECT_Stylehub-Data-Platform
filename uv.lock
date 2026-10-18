@@ -1912,7 +1912,6 @@ dependencies = [
     { name = "pyyaml" },
     { name = "requests" },
     { name = "sqlalchemy" },
-    { name = "typesafe-sdk", extra = ["zstd"] },
 ]
 
 [package.optional-dependencies]
@@ -1924,6 +1923,7 @@ dev = [
     { name = "pytest-cov" },
     { name = "ruff" },
     { name = "sqlfluff" },
+    { name = "typesafe-sdk", extra = ["zstd"] },
 ]
 serving = [
     { name = "db-dtypes" },
@@ -1951,7 +1951,7 @@ requires-dist = [
     { name = "sqlalchemy", specifier = ">=2.0" },
     { name = "sqlfluff", marker = "extra == 'dev'", specifier = ">=3" },
     { name = "streamlit", marker = "extra == 'serving'", specifier = ">=1.40" },
-    { name = "typesafe-sdk", extras = ["zstd"], specifier = ">=0.7.5" },
+    { name = "typesafe-sdk", extras = ["zstd"], marker = "extra == 'dev'", specifier = ">=0.7.5" },
 ]
 provides-extras = ["dev", "dbt", "serving"]
 

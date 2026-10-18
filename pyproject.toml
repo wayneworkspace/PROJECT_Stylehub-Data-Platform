@@ -16,7 +16,6 @@ dependencies = [
     "sqlalchemy>=2.0",
     "psycopg2-binary>=2.9",
     "colorlog>=6.8",
-    "typesafe-sdk[zstd]>=0.7.5",
 ]
 
 [project.optional-dependencies]
@@ -25,6 +24,7 @@ dev = [
     "pytest-cov>=6",
     "ruff>=0.6",
     "sqlfluff>=3",
+    "typesafe-sdk[zstd]>=0.7.5",
 ]
 # dbt for Silver and Gold; Airflow lives only in its image.
 dbt = ["dbt-bigquery>=1.10"]
