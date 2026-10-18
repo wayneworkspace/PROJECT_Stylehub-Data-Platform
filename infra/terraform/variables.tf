@@ -85,3 +85,9 @@ variable "artifact_repository" {
   type        = string
   default     = "stylehub"
 }
+
+variable "alert_notification_channels" {
+  description = "Monitoring channel ids for the BigQuery job alert; empty shows incidents in the console only."
+  type        = list(string)
+  default     = []
+}
