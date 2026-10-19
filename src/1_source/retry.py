@@ -30,6 +30,8 @@ TRANSIENT_ERRORS = (
 )
 # BigQuery error reasons that also mean a short-lived problem.
 TRANSIENT_REASONS = {"backendError", "internalError", "rateLimitExceeded"}
+# HTTP answers worth retrying: too many requests and server errors.
+RETRY_HTTP_CODES = {429, 500, 502, 503, 504}
 # Postgres network errors worth retrying; a wrong password is not.
 PG_TRANSIENT_TEXT = ("timeout", "could not connect", "server closed", "connection reset")
 
@@ -38,6 +40,8 @@ def is_transient(error: BaseException) -> bool:
     """True when waiting and trying again can help."""
     if isinstance(error, TRANSIENT_ERRORS):
         return True
+    if isinstance(error, requests.HTTPError):  # API: rate limit or server trouble
+        return getattr(error.response, "status_code", None) in RETRY_HTTP_CODES
     if isinstance(error, sqlalchemy.exc.OperationalError):
         return any(text in str(error).lower() for text in PG_TRANSIENT_TEXT)
     details = getattr(error, "errors", None) or []

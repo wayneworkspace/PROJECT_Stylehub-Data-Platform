@@ -1,7 +1,7 @@
 {# Newest Bronze snapshot; a fixed date reads only one partition. #}
 {# Fails when Bronze is empty, so Gold never shows zero revenue. #}
-{% macro latest_bronze_snapshot(table_name) %}
-  {%- set relation = source('stylehub', table_name) -%}
+{% macro latest_bronze_snapshot(table_name, source_name='stylehub') %}
+  {%- set relation = source(source_name, table_name) -%}
   {%- if execute -%}
     {%- set sql = 'SELECT MAX(_PARTITIONDATE) AS d FROM ' ~ relation -%}
     {%- set latest_day = run_query(sql).columns[0][0] -%}

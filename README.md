@@ -16,23 +16,26 @@ A daily ELT pipeline that turns the StyleHub online shop's raw tables and its li
 ```text
 Course tables (BigQuery) --full load--> Raw Zone (GCS Parquet) -> Bronze -> Silver -> Gold --> Streamlit
 Postgres (course DB) --incremental-->  Raw Zone (GCS, pg_*)    -> Bronze -> Silver -> Gold --> Streamlit EDA
+Products API (dummyjson.com) --pages--> Raw Zone (GCS, api_*) -> Bronze -> Silver
 
 Airflow DAG stylehub_daily, 02:00 UTC, two branches:
   ingest    -> bronze    -> silver    -> gold
   pg_ingest -> pg_bronze -> pg_silver -> pg_gold
   [gold, pg_gold] -> freshness (fails when a Bronze table is older than 26 hours)
+Airflow DAG stylehub_api, 02:30 UTC (TaskFlow API):
+  api_ready (sensor) -> plan_pages -> fetch_page x N (mapped, pool) -> any_rows (branch) -> api_bronze -> api_silver
 Every step attempt is recorded in stylehub_ops.pipeline_runs; failures post to Discord.
 ```
 
 | Step | Description | Source code path |
 | --- | --- | --- |
 | **Sources** | Settings, GCP and Postgres clients, retry with backoff, one-time CSV upload | `src/1_source/` |
-| **Ingestion** | Full load of course tables with a schema check; incremental Postgres load by `updated_at` watermark with a 1-day lookback; append-only Parquet in Raw | `src/2_ingestion/` |
+| **Ingestion** | Full load of course tables with a schema check; incremental Postgres load by `updated_at` watermark with a 1-day lookback; paged products API with retries on 429/5xx; append-only Parquet in Raw | `src/2_ingestion/` |
 | **Bronze** | Write-audit-publish: load into staging, check row counts against the Raw file, then replace the day's partition | `src/3_storage/` |
 | **Silver** | Newest row per id, typed columns, facts and dimensions with grain tests; SCD Type 2 product snapshot | `dbt_project/models/staging/`, `dbt_project/models/marts/core/`, `dbt_project/models/marts/pg_core/` |
 | **Gold** | Business rules: revenue, top customers, return rate, delivery time, order value; contracts and unit tests | `dbt_project/models/marts/reporting/`, `dbt_project/models/marts/pg_reporting/` |
 | **Serving** | Streamlit pipeline health page and EDA page (quality, duplicates, outliers, KPIs, correlation) | `src/5_serving/` |
-| **Orchestration** | One thin DAG; each task runs one step in the pipeline environment | `dags/` |
+| **Orchestration** | `stylehub_daily` (course and Postgres branches) and `stylehub_api` (TaskFlow: sensor, Connection, Variable, XCom, dynamic task mapping, branch, pool) | `dags/` |
 | **Monitoring** | Discord alerts on failed tasks, timeouts and stale data; BigQuery job-error alert in Cloud Monitoring | `src/0_utils/alerts.py`, `src/5_serving/freshness.py`, `infra/terraform/monitoring.tf` |
 
 ## 3. Technologies Used & Rationale

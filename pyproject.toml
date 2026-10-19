@@ -42,8 +42,8 @@ addopts = "--cov --cov-report=term-missing"
 
 [tool.coverage.run]
 source = ["src", "dags"]
-# Needs Airflow; tests/test_dag_integrity.py checks it inside the Airflow image.
-omit = ["dags/main_etl_dag.py"]
+# Need Airflow; tests/test_dag_integrity.py checks them inside the Airflow image.
+omit = ["dags/main_etl_dag.py", "dags/api_products_dag.py"]
 
 [tool.coverage.report]
 fail_under = 100

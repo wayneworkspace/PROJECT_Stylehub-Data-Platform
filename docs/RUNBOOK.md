@@ -88,7 +88,7 @@ docker compose --env-file secrets/.env --profile airflow --profile serving ps   
 | Airflow | `http://localhost:<AIRFLOW_WEB_PORT>` | `AIRFLOW_ADMIN_USER` / `AIRFLOW_ADMIN_PASSWORD` |
 | Dashboard | `http://localhost:8501` | none (localhost only) |
 
-Unpause `stylehub_daily` in the Airflow UI (or `MSYS_NO_PATHCONV=1 docker compose --env-file secrets/.env --profile airflow exec -T airflow-scheduler airflow dags unpause stylehub_daily`).
+Unpause `stylehub_daily` and `stylehub_api` in the Airflow UI (or `MSYS_NO_PATHCONV=1 docker compose --env-file secrets/.env --profile airflow exec -T airflow-scheduler airflow dags unpause stylehub_daily`).
 
 ## 2. Daily operation
 
@@ -99,7 +99,7 @@ The DAG runs by itself at 02:00 UTC (09:00 Vietnam time) and loads yesterday's d
 | Step | Where | Healthy |
 |---|---|---|
 | 1. Docker is running | `docker compose --env-file secrets/.env --profile airflow --profile serving ps` | All services up |
-| 2. Last night's run | Discord alert channel, then Airflow UI, Grid view of `stylehub_daily` | No red alert; 9 green tasks |
+| 2. Last night's runs | Discord alert channel, then Airflow UI, Grid views of `stylehub_daily` and `stylehub_api` | No red alert; 9 green tasks, and the API run green with `no_new_rows` skipped |
 | 3. Step history | Dashboard "Pipeline health", or `SELECT step, status, rows_loaded, error FROM stylehub_ops.pipeline_runs ORDER BY started_at DESC LIMIT 20` | `success` for each step today |
 | 4. Data freshness | Dashboard "Data freshness" | No table older than 26 hours |
 | 5. dbt warnings | `grep -h '"Done. PASS' logs/dbt/*/dbt.log \| tail -4` | `ERROR=0`; only the known item-order WARN |

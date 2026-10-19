@@ -447,7 +447,13 @@ def test_run_daily_records_failures(cfg, monkeypatch) -> None:
     monkeypatch.setattr(run_daily.load_bronze, "load_day", lambda *a, **k: 0)
     with pytest.raises(RuntimeError, match="no Raw file"):
         run_daily.run_step("2026-10-01", "bronze", "run-3")
-    assert [(r[0], r[2]) for r in recorded] == [("bronze", "failed"), ("bronze", "failed")]
+    with pytest.raises(RuntimeError, match="api_bronze: no Raw file"):
+        run_daily.run_step("2026-10-01", "api_bronze", "run-4")
+    assert [(r[0], r[2]) for r in recorded] == [
+        ("bronze", "failed"),
+        ("bronze", "failed"),
+        ("api_bronze", "failed"),
+    ]
 
 
 # dags -----------------------------------------------------------------------------------
@@ -545,3 +551,65 @@ def test_freshness_check_records_and_alerts(cfg, monkeypatch) -> None:
     with pytest.raises(RuntimeError, match="users"):
         freshness.check("2026-10-01", "run-5")
     assert recorded[-1][3] == "failed" and "users (40 h)" in sent[0]
+
+
+def product(pid: int, brand: str | None = "Acme") -> dict:
+    """One product as the API returns it with our select list."""
+    item = {
+        "id": pid,
+        "title": f"P{pid}",
+        "category": "beauty",
+        "price": 9.99,
+        "discountPercentage": 10.0,
+        "rating": 4.5,
+        "stock": 3,
+        "availabilityStatus": "In Stock",
+        "meta": {"updatedAt": "2026-05-23T11:27:41.868Z"},
+    }
+    if brand:
+        item["brand"] = brand
+    return item
+
+
+def test_api_get_page_and_http_retry_rule(monkeypatch) -> None:
+    api = import_module("src.1_source.api")
+    asked: list[tuple] = []
+
+    class Session:
+        def get(self, url: str, params: dict, timeout: int) -> NS:
+            asked.append((url, params["skip"], params["limit"]))
+            return NS(raise_for_status=lambda: None, json=lambda: {"products": []})
+
+    assert api.get_page(Session(), "https://api.test/", 50, 50) == {"products": []}
+    assert asked == [("https://api.test/products", 50, 50)]
+
+    def http_error(code: int) -> Exception:
+        return retry.requests.HTTPError(response=NS(status_code=code))
+
+    assert retry.is_transient(http_error(429)) and retry.is_transient(http_error(503))
+    assert not retry.is_transient(http_error(404))
+
+
+def test_api_products_frame_and_page_ingest(cfg, monkeypatch) -> None:
+    api_products = import_module("src.2_ingestion.api_products")
+    df = api_products.to_frame([product(1), product(2, brand=None)])
+    assert list(df["brand"].isna()) == [False, True]
+    assert str(df["stock"].dtype) == "Int64" and str(df["updated_at"].dt.tz) == "UTC"
+    broken = product(3)
+    del broken["price"]
+    with pytest.raises(schema_check.SchemaError, match="price"):
+        api_products.to_frame([broken])
+
+    gcs = FakeGCS()
+    monkeypatch.setattr(api_products.config, "settings", lambda: cfg)
+    monkeypatch.setattr(config, "gcs_client", lambda cfg: gcs)
+    pages = {0: [product(1), product(2)], 50: []}
+    monkeypatch.setattr(
+        api_products.api, "get_page", lambda s, url, skip, limit: {"products": pages[skip]}
+    )
+    page = {"base_url": "https://api.test", "skip": 0, "limit": 50, "batch_id": "b1"}
+    assert api_products.ingest_page(page, "2026-10-17") == 2
+    assert list(gcs.uploaded) == [
+        "raw/stylehub/api_products/date=2026-10-17/batch_id=b1/part_000000.parquet"
+    ]
+    assert api_products.ingest_page(page | {"skip": 50}, "2026-10-17") == 0

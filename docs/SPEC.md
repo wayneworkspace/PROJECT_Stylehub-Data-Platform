@@ -5,9 +5,9 @@
 | Item | Specification |
 |---|---|
 | Purpose | Daily ELT turns StyleHub shop data into tested BigQuery tables |
-| Sources | Course BigQuery tables and read-only course Postgres database |
+| Sources | Course BigQuery tables, read-only course Postgres database, products API (dummyjson.com) |
 | Destination | GCS Raw Zone plus BigQuery Bronze, Silver, Gold datasets |
-| Schedule | Airflow runs both branches daily at 02:00 UTC |
+| Schedule | `stylehub_daily` at 02:00 UTC, `stylehub_api` at 02:30 UTC |
 | Consumers | Analysts read Gold; Streamlit shows health and EDA |
 | Environment | Local Docker today; one GCP project, asia-southeast1 region |
 
@@ -36,6 +36,17 @@
 | `pg_silver` | dbt keeps newest row per id, checks item amounts | `pg_bronze` |
 | `pg_gold` | dbt builds Buổi 5 business tables and Gold-Silver check | `pg_silver` |
 | `freshness` | Fails and alerts when a Bronze table is older than 26 hours | `gold`, `pg_gold` |
+
+## DAG `stylehub_api`
+
+| Task | Airflow feature | Runs |
+|---|---|---|
+| `api_ready` | `HttpSensor`, reschedule mode | Waits until the API answers, up to 10 minutes |
+| `plan_pages` | TaskFlow `@task`, Connection `stylehub_api`, Variable `stylehub_api_page_size`, XCom | One page dict per 50 products, one shared `batch_id` |
+| `fetch_page` | `@task.external_python`, dynamic task mapping, pool `api_pool` (2 slots) | One Raw Parquet part per page |
+| `any_rows` | `@task.branch` | Goes to `api_bronze`, or `no_new_rows` when nothing came back |
+| `api_bronze` | ExternalPythonOperator | Write-audit-publish of the day's batch into `stylehub_bronze.api_products` |
+| `api_silver` | ExternalPythonOperator | dbt `tag:api_silver`: `stg_api__products`, `api_products` with `price_after_discount` |
 
 ## Data layers
 

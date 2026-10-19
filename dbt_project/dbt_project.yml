@@ -33,6 +33,8 @@ models:
         +tags: ["silver"]
       stylehub_pg:
         +tags: ["pg_silver"]
+      stylehub_api:
+        +tags: ["api_silver"]
     intermediate:
       +materialized: view
       +schema: "{{ env_var('BQ_SILVER', 'stylehub_silver') }}"
@@ -50,6 +52,10 @@ models:
         +materialized: table
         +schema: "{{ env_var('BQ_SILVER', 'stylehub_silver') }}"
         +tags: ["pg_silver"]
+      api_core:
+        +materialized: table
+        +schema: "{{ env_var('BQ_SILVER', 'stylehub_silver') }}"
+        +tags: ["api_silver"]
       pg_reporting:
         +materialized: table
         +schema: "{{ env_var('BQ_GOLD', 'stylehub_gold') }}"
