@@ -24,6 +24,7 @@ Error messages and fixes: `ERRORS.md`. Longer per-tool guides live only on the o
 git clone https://github.com/wayneworkspace/PROJECT_Stylehub-Data-Platform.git
 cd PROJECT_Stylehub-Data-Platform
 uv sync --extra dev --extra dbt --extra serving
+uv run dbt deps --project-dir dbt_project --profiles-dir dbt_project --log-path logs/dbt   # dbt_utils, from package-lock.yml
 mkdir -p secrets && cp .env.example secrets/.env      # fill in every value; secrets/ is never committed
 ```
 

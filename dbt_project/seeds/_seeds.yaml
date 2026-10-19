@@ -1,0 +1,12 @@
+version: 2
+
+seeds:
+  - name: country_regions
+    description: >
+      Country as the source spells it (Brasil, España) mapped to one clean name and a region.
+      A new country in the data fails the relationships test on pg_revenue_by_region.
+    columns:
+      - name: country
+        data_tests: [unique, not_null]
+      - name: region
+        data_tests: [not_null]

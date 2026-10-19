@@ -32,6 +32,16 @@ models:
       - name: published_at
         data_tests: [not_null]
 
+  - name: pg_revenue_by_region
+    description: Revenue, orders and customers per region and clean country name (grain region, country).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [region, country]
+    columns:
+      - name: revenue
+        data_tests: [not_null]
+
   - name: pg_monthly_top_customers
     description: Top 5 customers by revenue in each month (grain month, user_id).
     columns:

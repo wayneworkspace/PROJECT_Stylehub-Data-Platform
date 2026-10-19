@@ -51,7 +51,9 @@ jobs:
           uv export --frozen --no-hashes --no-dev --extra dbt --no-emit-project -o requirements.txt
           git diff --exit-code requirements.txt
       - name: dbt parse (no BigQuery connection)
-        run: uv run dbt parse --project-dir dbt_project --profiles-dir dbt_project --log-path logs/dbt
+        run: |
+          uv run dbt deps --project-dir dbt_project --profiles-dir dbt_project --log-path logs/dbt
+          uv run dbt parse --project-dir dbt_project --profiles-dir dbt_project --log-path logs/dbt
         env:
           GCP_PROJECT_ID: ci-dummy-project
           GCS_BUCKET: ci-dummy-bucket
