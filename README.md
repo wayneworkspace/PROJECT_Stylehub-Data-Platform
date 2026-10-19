@@ -20,7 +20,8 @@ Postgres (course DB) --incremental-->  Raw Zone (GCS, pg_*)    -> Bronze -> Silv
 Airflow DAG stylehub_daily, 02:00 UTC, two branches:
   ingest    -> bronze    -> silver    -> gold
   pg_ingest -> pg_bronze -> pg_silver -> pg_gold
-Every step attempt is recorded in stylehub_ops.pipeline_runs.
+  [gold, pg_gold] -> freshness (fails when a Bronze table is older than 26 hours)
+Every step attempt is recorded in stylehub_ops.pipeline_runs; failures post to Discord.
 ```
 
 | Step | Description | Source code path |
@@ -32,6 +33,7 @@ Every step attempt is recorded in stylehub_ops.pipeline_runs.
 | **Gold** | Business rules: revenue, top customers, return rate, delivery time, order value; contracts and unit tests | `dbt_project/models/marts/reporting/`, `dbt_project/models/marts/pg_reporting/` |
 | **Serving** | Streamlit pipeline health page and EDA page (quality, duplicates, outliers, KPIs, correlation) | `src/5_serving/` |
 | **Orchestration** | One thin DAG; each task runs one step in the pipeline environment | `dags/` |
+| **Monitoring** | Discord alerts on failed tasks, timeouts and stale data; BigQuery job-error alert in Cloud Monitoring | `src/0_utils/alerts.py`, `src/5_serving/freshness.py`, `infra/terraform/monitoring.tf` |
 
 ## 3. Technologies Used & Rationale
 
@@ -41,6 +43,7 @@ Every step attempt is recorded in stylehub_ops.pipeline_runs.
 | **Sources** | SQLAlchemy, psycopg2, pandas | Chunked, consistent `REPEATABLE READ` reads from Postgres straight into DataFrames |
 | **Transformation** | dbt (dbt-bigquery) | Modular SQL with tests, contracts, unit tests, snapshots and lineage |
 | **Orchestration** | Apache Airflow 3 | Daily schedule, retries, timeouts and backfills with clear task dependencies |
+| **Monitoring** | Discord webhook, Cloud Monitoring | A chat message reaches people at once; the log metric also catches failures outside Airflow, such as dbt in CD |
 | **Serving** | Streamlit, Altair | A Python-only dashboard; Altair charts ship with Streamlit, no extra dependency |
 | **Infrastructure** | Terraform, Workload Identity Federation | Every cloud resource in code, remote state, short-lived GitHub tokens instead of key files |
 | **Code & Quality** | Python 3.13, uv, Ruff, pytest, SQLFluff, pre-commit, colorlog | Same checks on a laptop and in CI; colored terminal logs and plain log files |

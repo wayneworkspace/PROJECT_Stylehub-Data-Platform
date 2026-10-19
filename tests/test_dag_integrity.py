@@ -16,7 +16,9 @@ def test_dags_load() -> None:
     dag = bag.dags["stylehub_daily"]
     csv = ["ingest", "bronze", "silver", "gold"]
     pg = ["pg_ingest", "pg_bronze", "pg_silver", "pg_gold"]
-    assert set(dag.task_ids) == {*csv, *pg}
+    assert set(dag.task_ids) == {*csv, *pg, "freshness"}
     for branch in (csv, pg):
         for before, after in pairwise(branch):
             assert dag.get_task(after).upstream_task_ids == {before}
+    assert dag.get_task("freshness").upstream_task_ids == {"gold", "pg_gold"}
+    assert dag.on_failure_callback and dag.default_args["on_failure_callback"]

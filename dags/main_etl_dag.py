@@ -6,7 +6,13 @@ from datetime import UTC, datetime, timedelta
 from airflow.providers.standard.operators.python import ExternalPythonOperator
 from airflow.sdk import DAG, chain
 from airflow.timetables.interval import CronDataIntervalTimetable
-from utils_dag import PIPELINE_PYTHON, PROJECT_HOME, run_python_step
+from utils_dag import (
+    PIPELINE_PYTHON,
+    PROJECT_HOME,
+    alert_on_failure,
+    run_freshness_check,
+    run_python_step,
+)
 
 # Two branches; names match STEPS in run_daily.py.
 CSV_STEPS = ["ingest", "bronze", "silver", "gold"]
@@ -16,8 +22,9 @@ default_args = {
     "owner": "data-engineering",
     "retries": 1,
     "retry_delay": timedelta(minutes=5),
-    # Stop a stuck task so tomorrow's run is not blocked.
-    "execution_timeout": timedelta(hours=2),
+    # A normal step takes under 2 minutes; stop a stuck one early.
+    "execution_timeout": timedelta(minutes=30),
+    "on_failure_callback": alert_on_failure,  # Discord message after the last retry
 }
 
 with DAG(
@@ -30,6 +37,9 @@ with DAG(
     catchup=False,  # old days are loaded on purpose with a backfill
     # Silver and Gold are rebuilt whole, so runs never overlap.
     max_active_runs=1,
+    # A run takes about 4 minutes; a run still going after an hour fails and alerts.
+    dagrun_timeout=timedelta(hours=1),
+    on_failure_callback=alert_on_failure,
     tags=["stylehub"],
 ) as dag:
     tasks = {
@@ -53,3 +63,14 @@ with DAG(
 
     chain(*(tasks[step] for step in CSV_STEPS))  # ingest >> bronze >> silver >> gold
     chain(*(tasks[step] for step in PG_STEPS))  # pg_ingest >> ... >> pg_gold
+
+    # After both branches: alert when a Bronze table was not loaded today.
+    freshness = ExternalPythonOperator(
+        task_id="freshness",
+        python=PIPELINE_PYTHON,
+        python_callable=run_freshness_check,
+        op_kwargs={"data_date": "{{ ds }}", "project_home": PROJECT_HOME, "run_id": "{{ run_id }}"},
+        expect_airflow=False,
+        expect_pendulum=False,
+    )
+    [tasks["gold"], tasks["pg_gold"]] >> freshness

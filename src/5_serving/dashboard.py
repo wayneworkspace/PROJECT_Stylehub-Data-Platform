@@ -9,8 +9,7 @@ import streamlit as st
 # Streamlit runs this file by path; add the project root.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 read = import_module("src.5_serving.reader").read
-
-STALE_AFTER_HOURS = 26  # a daily load plus a little room
+STALE_AFTER_HOURS = import_module("src.5_serving.freshness").STALE_AFTER_HOURS
 
 st.title("StyleHub pipeline")
 

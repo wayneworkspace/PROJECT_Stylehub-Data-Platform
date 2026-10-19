@@ -20,8 +20,8 @@
 | 3. Storage | `src/3_storage/` | Bronze write-audit-publish, events build, run history records |
 | 4. Transform | `src/4_transform/`, `dbt_project/` | dbt builds Silver facts, dimensions and Gold business tables |
 | 5. Serving | `src/5_serving/` | Streamlit health dashboard and EDA page over Silver |
-| Orchestration | `dags/` | One DAG, two branches, retries and two-hour task timeout |
-| Shared | `src/0_utils/logger.py` | One colored console logger with plain daily files |
+| Orchestration | `dags/` | One DAG, two branches, freshness check, retries, timeouts, Discord alerts |
+| Shared | `src/0_utils/` | Colored console logger with daily files; Discord alert sender |
 
 ## DAG `stylehub_daily`
 
@@ -35,6 +35,7 @@
 | `pg_bronze` | Changed rows land in never-expiring Bronze day partitions | `pg_ingest` |
 | `pg_silver` | dbt keeps newest row per id, checks item amounts | `pg_bronze` |
 | `pg_gold` | dbt builds Buổi 5 business tables and Gold-Silver check | `pg_silver` |
+| `freshness` | Fails and alerts when a Bronze table is older than 26 hours | `gold`, `pg_gold` |
 
 ## Data layers
 
@@ -56,7 +57,7 @@
 | First run | No Bronze table yet, so read the whole table |
 | Idempotency | Same watermark on rerun reads same rows, replaces partition |
 | Consistency | One `REPEATABLE READ` transaction, row count checked against source |
-| Volume | Chunks of 100,000 rows keep memory flat on big tables |
+| Volume | One read per window; the window is held in memory |
 | Deletes | Source deletes stay in Bronze; needs full compare or CDC |
 | Empty day | No changed rows writes no file and is not failure |
 
@@ -82,11 +83,22 @@
 | Pipeline health | Fourteen days of step runs, failures, durations, Bronze freshness |
 | EDA | Quality report, duplicates, rule checks, statistics, outliers, KPIs, correlation |
 
+## Monitoring and alerts
+
+| Signal | Where | Action |
+|---|---|---|
+| Task fails after its retry | Airflow `on_failure_callback` | Discord message with task, run, error, log link |
+| Run longer than one hour | `dagrun_timeout`, DAG callback | Run fails, Discord message |
+| Task longer than 30 minutes | `execution_timeout` | Task fails, then alerts |
+| Bronze table older than 26 hours | `freshness` task, dashboard | Task fails, Discord message, dashboard warning |
+| Pipeline BigQuery job fails anywhere | Log metric and alert policy (Terraform) | Incident in Cloud Monitoring |
+| Every step attempt | `stylehub_ops.pipeline_runs` | Dashboard history |
+
 ## Security and access
 
 | Rule | Specification |
 |---|---|
-| Secrets | Only in git-ignored `secrets/.env`; `SecretStr` hides passwords |
+| Secrets | Only in git-ignored `secrets/.env` (database URL, Discord webhook); `SecretStr` hides passwords |
 | Personal data | Names and addresses dropped; email hashed in dimensions |
 | GitHub login | Workload Identity Federation tokens, no JSON keys stored |
 | Apply rights | Terraform apply account usable only from `main` branch |

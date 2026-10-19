@@ -7,6 +7,8 @@ resource "google_project_service" "apis" {
     "iamcredentials.googleapis.com",
     "sts.googleapis.com",
     "cloudresourcemanager.googleapis.com",
+    "logging.googleapis.com",
+    "monitoring.googleapis.com",
   ])
   service            = each.value
   disable_on_destroy = false # turning an API off can break other things

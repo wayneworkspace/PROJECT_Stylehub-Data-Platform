@@ -45,6 +45,8 @@ locals {
     "plan-accounts"     = { role = "roles/iam.serviceAccountViewer", sa = "sa-terraform-plan" }
     "plan-wif"          = { role = "roles/iam.workloadIdentityPoolViewer", sa = "sa-terraform-plan" }
     "plan-registry"     = { role = "roles/artifactregistry.reader", sa = "sa-terraform-plan" }
+    "plan-log-metrics"  = { role = "roles/logging.viewer", sa = "sa-terraform-plan" }
+    "plan-alerts"       = { role = "roles/monitoring.alertPolicyViewer", sa = "sa-terraform-plan" }
     "apply-storage"     = { role = "roles/storage.admin", sa = "sa-terraform-apply" }
     "apply-bigquery"    = { role = "roles/bigquery.admin", sa = "sa-terraform-apply" }
     "apply-registry"    = { role = "roles/artifactregistry.admin", sa = "sa-terraform-apply" }
@@ -52,6 +54,8 @@ locals {
     "apply-wif"         = { role = "roles/iam.workloadIdentityPoolAdmin", sa = "sa-terraform-apply" }
     "apply-project-iam" = { role = "roles/resourcemanager.projectIamAdmin", sa = "sa-terraform-apply" }
     "apply-apis"        = { role = "roles/serviceusage.serviceUsageAdmin", sa = "sa-terraform-apply" }
+    "apply-log-metrics" = { role = "roles/logging.configWriter", sa = "sa-terraform-apply" }
+    "apply-alerts"      = { role = "roles/monitoring.alertPolicyEditor", sa = "sa-terraform-apply" }
   }
 }
 

@@ -37,6 +37,7 @@ Fill in `secrets/.env`:
 | `AIRFLOW_DB_PASSWORD`, `AIRFLOW_ADMIN_PASSWORD` | New random passwords |
 | `AIRFLOW_SECRET_KEY`, `AIRFLOW_FERNET_KEY` | Generate with the commands in `.env.example` |
 | `AIRFLOW_WEB_PORT` | A free local port, for example `8082` |
+| `ALERT_WEBHOOK_URL` | Discord webhook for alerts (Server settings → Integrations → Webhooks) |
 | `AI_GATEWAY_API_KEY` | TypeSafe key, only for reviews |
 
 ### 1.3 Cloud resources (project Owner, once)
@@ -98,7 +99,7 @@ The DAG runs by itself at 02:00 UTC (09:00 Vietnam time) and loads yesterday's d
 | Step | Where | Healthy |
 |---|---|---|
 | 1. Docker is running | `docker compose --env-file secrets/.env --profile airflow --profile serving ps` | All services up |
-| 2. Last night's run | Airflow UI, Grid view of `stylehub_daily` | 8 green tasks |
+| 2. Last night's run | Discord alert channel, then Airflow UI, Grid view of `stylehub_daily` | No red alert; 9 green tasks |
 | 3. Step history | Dashboard "Pipeline health", or `SELECT step, status, rows_loaded, error FROM stylehub_ops.pipeline_runs ORDER BY started_at DESC LIMIT 20` | `success` for each step today |
 | 4. Data freshness | Dashboard "Data freshness" | No table older than 26 hours |
 | 5. dbt warnings | `grep -h '"Done. PASS' logs/dbt/*/dbt.log \| tail -4` | `ERROR=0`; only the known item-order WARN |
@@ -107,7 +108,7 @@ The laptop must be on and Docker running at 02:00 UTC. The DAG has `catchup=Fals
 
 ### 2.2 When a task failed
 
-1. Open the failed task log in the Airflow UI, or `logs/airflow/dag_id=stylehub_daily/run_id=<run>/task_id=<task>/attempt=<n>.log`.
+1. The Discord alert names the task, run and first error line. Open the failed task log in the Airflow UI, or `logs/airflow/dag_id=stylehub_daily/run_id=<run>/task_id=<task>/attempt=<n>.log`.
 2. Find the message in `ERRORS.md` and apply the fix.
 3. If you changed code: `docker compose --env-file secrets/.env --profile airflow up -d --build`.
 4. Clear the failed task with **Clear** in the UI (Grid view, click the task); tasks after it run again. The CLI `airflow tasks clear` does not match runs of this DAG on Airflow 3.3.2.

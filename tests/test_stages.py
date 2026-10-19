@@ -98,8 +98,8 @@ class FakeBQ:
 
 
 class FakeRows(list):
-    def result(self) -> None:
-        return None
+    def result(self) -> "FakeRows":  # like RowIterator: the rows themselves
+        return self
 
 
 class FakeBlob:
@@ -482,3 +482,66 @@ def test_log_file_moves_to_the_new_day(tmp_path, monkeypatch) -> None:
         "unified-data_test_mod_2026-01-01.log",
         "unified-data_test_mod_2026-01-02.log",
     ]
+
+
+def test_alerts_message_and_send(monkeypatch) -> None:
+    alerts = import_module("src.0_utils.alerts")
+    text = alerts.failure_message("stylehub_daily", "pg_gold", "run-1", "boom", "http://log")
+    assert "task `pg_gold` failed" in text and "Log: http://log" in text
+    assert "the DAG run failed" in alerts.failure_message("d", None, "r", "timeout", None)
+
+    monkeypatch.delenv("ALERT_WEBHOOK_URL", raising=False)
+    assert alerts.send_alert("x") is False  # no webhook: log only
+
+    monkeypatch.setenv("ALERT_WEBHOOK_URL", "https://discord.test/hook")
+    posted: list[dict] = []
+    ok = NS(raise_for_status=lambda: None)
+    post = lambda url, json, timeout: posted.append(json) or ok  # noqa: E731
+    monkeypatch.setattr(alerts.requests, "post", post)
+    assert alerts.send_alert("y" * 5000) is True
+    assert len(posted[0]["content"]) == alerts.MAX_CHARS
+
+    def refuse(*args: object, **kwargs: object) -> NS:
+        raise alerts.requests.ConnectionError("down")
+
+    monkeypatch.setattr(alerts.requests, "post", refuse)
+    assert alerts.send_alert("z") is False
+
+
+def test_dag_helpers_run_freshness_and_alert(monkeypatch) -> None:
+    utils_dag = import_module("dags.utils_dag")
+    freshness = import_module("src.5_serving.freshness")
+    alerts = import_module("src.0_utils.alerts")
+    checked: list[tuple] = []
+    monkeypatch.setattr(freshness, "check", lambda *a: checked.append(a))
+    utils_dag.run_freshness_check("2026-10-01", str(config.ROOT), "run-2")
+    assert checked == [("2026-10-01", "run-2")]
+
+    sent: list[str] = []
+    monkeypatch.setattr(alerts, "send_alert", sent.append)
+    ti = NS(task_id="bronze", log_url="http://log")
+    run = NS(dag_id="stylehub_daily", run_id="run-3")
+    utils_dag.alert_on_failure({"ti": ti, "dag_run": run, "exception": ValueError("bad\nmore")})
+    utils_dag.alert_on_failure({"dag_run": run, "reason": "timed_out"})
+    assert "task `bronze` failed" in sent[0] and "Error: bad" in sent[0]
+    assert "the DAG run failed" in sent[1] and "timed_out" in sent[1]
+
+
+def test_freshness_check_records_and_alerts(cfg, monkeypatch) -> None:
+    freshness = import_module("src.5_serving.freshness")
+    client = FakeBQ()
+    monkeypatch.setattr(freshness.config, "settings", lambda: cfg)
+    monkeypatch.setattr(config, "bq_client", lambda cfg: client)
+    recorded: list[tuple] = []
+    sent: list[str] = []
+    monkeypatch.setattr(freshness.runs, "record_run", lambda *a: recorded.append(a))
+    monkeypatch.setattr(freshness.alerts, "send_alert", sent.append)
+
+    client.query_rows = [NS(table_name="orders", hours_old=3)]
+    freshness.check("2026-10-01", "run-4")
+    assert recorded[-1][3] == "success" and not sent
+
+    client.query_rows = [NS(table_name="orders", hours_old=3), NS(table_name="users", hours_old=40)]
+    with pytest.raises(RuntimeError, match="users"):
+        freshness.check("2026-10-01", "run-5")
+    assert recorded[-1][3] == "failed" and "users (40 h)" in sent[0]
