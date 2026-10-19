@@ -148,6 +148,20 @@ docker compose --env-file secrets/.env --profile airflow --profile serving down 
 docker compose --env-file secrets/.env --profile airflow --profile serving up -d
 ```
 
+## 2.6 Run Airflow on a VM (optional, about 25 USD a month)
+
+The VM runs the same `docker compose` stack and signs in to GCP as `sa-pipeline`, so it needs no key file.
+
+```bash
+cp secrets/.env secrets/.env.vm      # then delete the GOOGLE_APPLICATION_CREDENTIALS line in .env.vm
+gcloud secrets versions add stylehub-dotenv --data-file=secrets/.env.vm
+gh variable set ENABLE_AIRFLOW_VM --body true   # the only switch: CI plans and CD applies it
+# after the next merge to main and CD:
+gcloud compute ssh stylehub-airflow --zone asia-southeast1-b --tunnel-through-iap -- -L 8082:localhost:8082
+```
+
+Open `http://localhost:8082` while the tunnel runs. Startup log on the VM: `sudo journalctl -u google-startup-scripts`. Turn it off with `gh variable set ENABLE_AIRFLOW_VM --body false` and a merge. Never set `enable_airflow_vm` in `terraform.tfvars`: CD does not read that file and would remove the VM.
+
 ## 3. Regular tasks
 
 | When | Task |

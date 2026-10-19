@@ -1,0 +1,19 @@
+#!/bin/bash
+# Runs on every boot of the Airflow VM: Docker, the repository, secrets/.env
+# from Secret Manager, then the Airflow stack. Logs: journalctl -u google-startup-scripts
+set -euo pipefail
+
+command -v git >/dev/null || { apt-get update && apt-get install -y git; }
+command -v docker >/dev/null || curl -fsSL https://get.docker.com | sh
+
+cd /opt
+[ -d stylehub ] || git clone "https://github.com/${github_repository}.git" stylehub
+cd stylehub
+git pull --ff-only
+
+mkdir -p secrets logs/airflow
+gcloud secrets versions access latest --secret="${secret_id}" --project="${project_id}" > secrets/.env
+chmod 600 secrets/.env
+chown -R 50000:0 logs # the airflow user inside the image
+
+docker compose --env-file secrets/.env --profile airflow up -d --build

@@ -48,7 +48,7 @@ Every step attempt is recorded in stylehub_ops.pipeline_runs; failures post to D
 | **Orchestration** | Apache Airflow 3 | Daily schedule, retries, timeouts and backfills with clear task dependencies |
 | **Monitoring** | Discord webhook, Cloud Monitoring | A chat message reaches people at once; the log metric also catches failures outside Airflow, such as dbt in CD |
 | **Serving** | Streamlit, Altair | A Python-only dashboard; Altair charts ship with Streamlit, no extra dependency |
-| **Infrastructure** | Terraform, Workload Identity Federation | Every cloud resource in code, remote state, short-lived GitHub tokens instead of key files |
+| **Infrastructure** | Terraform, Workload Identity Federation, Secret Manager | Every cloud resource in code, remote state, short-lived GitHub tokens instead of key files; server secrets kept out of Terraform state |
 | **Code & Quality** | Python 3.13, uv, Ruff, pytest, SQLFluff, pre-commit, colorlog | Same checks on a laptop and in CI; colored terminal logs and plain log files |
 
 ## 4. Results Achieved
@@ -60,7 +60,7 @@ Every step attempt is recorded in stylehub_ops.pipeline_runs; failures post to D
 * **Quality:** dbt passed 29 Silver and 13 Gold checks on the course branch and 26 Silver checks on the Postgres branch; unit tests cover 100% of 671 Python statements.
 * **Insights:** the EDA page reads 316,358 Postgres order items of the last 90 days; it found no rule violations (no negative amounts, `amount` always equals `sale_price * quantity`), and 5.7% to 9.4% IQR outliers in price, quantity and amount.
 
-*Current limitations:* runs locally in Docker with one service account key; not deployed to a VM yet. Postgres deletes are found by a daily full id compare, not by change data capture. Product cost history starts on 2026-10-01, so older sales use the first known cost. The first Postgres load left some orders without their customer and some items without their order (dbt warnings); the next incremental run fixed the customers, but items without an order remain a warning.
+*Current limitations:* runs locally in Docker with one service account key; the Airflow VM is ready in Terraform but off (`ENABLE_AIRFLOW_VM`). Postgres deletes are found by a daily full id compare, not by change data capture. Product cost history starts on 2026-10-01, so older sales use the first known cost. The first Postgres load left some orders without their customer and some items without their order (dbt warnings); the next incremental run fixed the customers, but items without an order remain a warning.
 
 ## Quick Start
 
