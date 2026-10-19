@@ -10,4 +10,6 @@ sources:
       - name: pg_order_items
       - name: pg_products
       - name: pg_shipments
+      - name: pg_deleted_ids
+        description: Ids deleted in Postgres; rewritten whole by the pg_reconcile step.
       - name: pg_users

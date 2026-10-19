@@ -14,6 +14,7 @@ csv_tables = import_module("src.2_ingestion.csv_tables")
 pg_tables = import_module("src.2_ingestion.postgres_tables")
 events_bronze = import_module("src.3_storage.events_bronze")
 load_bronze = import_module("src.3_storage.load_bronze")
+reconcile = import_module("src.3_storage.reconcile")
 runs = import_module("src.3_storage.runs")
 run_dbt = import_module("src.4_transform.run_dbt")
 
@@ -73,6 +74,12 @@ def step_pg_bronze(data_date: str, cfg: config.Settings) -> StepOutcome:
     return StepOutcome(sum(by_table.values()), {"rows_by_table": by_table})
 
 
+def step_pg_reconcile(data_date: str, cfg: config.Settings) -> StepOutcome:
+    # Full id compare each day; Silver drops the deleted ids.
+    counts = reconcile.reconcile(cfg)
+    return StepOutcome(sum(counts.values()), {"deleted_by_table": counts})
+
+
 def step_api_bronze(data_date: str, cfg: config.Settings) -> StepOutcome:
     # The API DAG runs this only after at least one page had rows.
     rows = load_bronze.load_day("api_products", data_date, cfg)
@@ -94,6 +101,7 @@ STEPS = {
     "gold": partial(step_dbt, "gold"),
     "pg_ingest": step_pg_ingest,
     "pg_bronze": step_pg_bronze,
+    "pg_reconcile": step_pg_reconcile,
     "pg_silver": partial(step_dbt, "pg_silver"),
     "pg_gold": partial(step_dbt, "pg_gold"),
     "api_bronze": step_api_bronze,  # used by the stylehub_api DAG
