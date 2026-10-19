@@ -3,6 +3,7 @@
 import time
 from datetime import datetime, timedelta
 from importlib import import_module
+from types import SimpleNamespace
 
 import pandas as pd
 from sqlalchemy import text
@@ -13,6 +14,7 @@ bq = import_module("src.1_source.bq")
 config = import_module("src.1_source.config")
 retry = import_module("src.1_source.retry")
 raw_writer = import_module("src.2_ingestion.raw_writer")
+schema_check = import_module("src.2_ingestion.schema_check")
 
 log = get_logger(__name__)
 
@@ -76,9 +78,27 @@ def extract(
     return retry.call_with_retry(read)
 
 
+def check_schema(table: str, cfg: config.Settings) -> None:
+    """Stop before reading rows when Postgres columns changed (dbt sources file)."""
+    sql = text(
+        "SELECT column_name, data_type FROM information_schema.columns "
+        "WHERE table_schema = 'public' AND table_name = :table"
+    )
+
+    def read() -> list:
+        with config.pg_engine(cfg).connect() as conn:
+            return conn.execute(sql, {"table": table}).all()
+
+    fields = [SimpleNamespace(name=n, field_type=t) for n, t in retry.call_with_retry(read)]
+    schema_check.check_declared_schema(
+        raw_name(table), fields, source="stylehub_pg", kinds=schema_check.PG_KIND_NAMES
+    )
+
+
 def ingest_table(table: str, data_date: str, cfg: config.Settings) -> int:
     """Write the rows changed in the window to Raw; return the row count."""
     started = time.perf_counter()
+    check_schema(table, cfg)
     start, end = read_window(data_date, bronze_watermark(table, data_date, cfg))
     df = extract(table, start, end, cfg)
     seconds = time.perf_counter() - started

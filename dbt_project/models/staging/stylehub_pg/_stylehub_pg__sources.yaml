@@ -2,14 +2,114 @@ version: 2
 
 sources:
   # Bronze pg_* tables, loaded incrementally from the course Postgres.
+  # Columns and types are checked against Postgres before every read (schema_check).
   - name: stylehub_pg
     database: "{{ env_var('GCP_PROJECT_ID') }}"
     schema: "{{ env_var('BQ_BRONZE', 'stylehub_bronze') }}"
     tables:
       - name: pg_orders
+        columns:
+          - name: id
+            data_type: int
+          - name: user_id
+            data_type: int
+          - name: total_amount
+            data_type: number
+          - name: status
+            data_type: text
+          - name: created_at
+            data_type: datetime
+          - name: updated_at
+            data_type: datetime
       - name: pg_order_items
+        columns:
+          - name: id
+            data_type: int
+          - name: order_id
+            data_type: int
+          - name: product_id
+            data_type: int
+          - name: sale_price
+            data_type: number
+          - name: quantity
+            data_type: int
+          - name: amount
+            data_type: number
+          - name: created_at
+            data_type: datetime
+          - name: updated_at
+            data_type: datetime
       - name: pg_products
+        columns:
+          - name: id
+            data_type: int
+          - name: cost
+            data_type: number
+          - name: category
+            data_type: text
+          - name: name
+            data_type: text
+          - name: brand
+            data_type: text
+          - name: retail_price
+            data_type: number
+          - name: department
+            data_type: text
+          - name: sku
+            data_type: text
+          - name: created_at
+            data_type: datetime
+          - name: updated_at
+            data_type: datetime
       - name: pg_shipments
+        columns:
+          - name: id
+            data_type: int
+          - name: order_id
+            data_type: int
+          - name: shipped_at
+            data_type: datetime
+          - name: delivered_at
+            data_type: datetime
+          - name: returned_at
+            data_type: datetime
+          - name: created_at
+            data_type: datetime
+          - name: updated_at
+            data_type: datetime
       - name: pg_deleted_ids
         description: Ids deleted in Postgres; rewritten whole by the pg_reconcile step.
       - name: pg_users
+        columns:
+          - name: id
+            data_type: int
+          - name: first_name
+            data_type: text
+          - name: last_name
+            data_type: text
+          - name: email
+            data_type: text
+          - name: age
+            data_type: int
+          - name: gender
+            data_type: text
+          - name: state
+            data_type: text
+          - name: street_address
+            data_type: text
+          - name: postal_code
+            data_type: text
+          - name: city
+            data_type: text
+          - name: country
+            data_type: text
+          - name: latitude
+            data_type: number
+          - name: longitude
+            data_type: number
+          - name: traffic_source
+            data_type: text
+          - name: created_at
+            data_type: datetime
+          - name: updated_at
+            data_type: datetime

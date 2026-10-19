@@ -11,6 +11,7 @@ Each row: the message you see, why it happens, and the fix. Commands run from th
 | `RowCountMismatch: Raw file has X rows but Bronze got Y` | Load job lost or added rows | Check `_stg_<table>` in Bronze, rerun `bronze`; partition is untouched |
 | `SourceRowMismatch: read X rows, the source has Y` | Source changed during the read | Rerun the task; Postgres reads use `REPEATABLE READ` |
 | `SchemaError: missing columns` / `type changes` | Course source table changed its columns | Update `_stylehub__sources.yaml` and the staging models |
+| `SchemaError: pg_<table>: the source table changed` | A Postgres column was removed or changed type | Update `_stylehub_pg__sources.yaml` and the `stg_pg__` models; new columns only warn |
 | `POSTGRES_URL is not set in secrets/.env` | Postgres URL missing | Add `POSTGRES_URL` to `secrets/.env` (see `.env.example`) |
 | `password authentication failed` (Postgres) | Wrong or rotated password | Fix `POSTGRES_URL`; it is not retried on purpose |
 | `DbtError: dbt build (<layer>) failed: model.x: error` | A dbt model or test failed | Read `logs/dbt/<layer>/dbt.log` (JSON) for the failing node |

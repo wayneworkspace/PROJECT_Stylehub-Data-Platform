@@ -14,13 +14,18 @@ config = import_module("src.1_source.config")
 
 log = get_logger(__name__)
 
-SOURCES_FILE = config.DBT_DIR / "models" / "staging" / "stylehub" / "_stylehub__sources.yaml"
+STAGING = config.DBT_DIR / "models" / "staging"
+SOURCE_FILES = {
+    "stylehub": STAGING / "stylehub" / "_stylehub__sources.yaml",
+    "stylehub_pg": STAGING / "stylehub_pg" / "_stylehub_pg__sources.yaml",
+}
 
 
 @cache
-def expected_schemas() -> dict[str, dict[str, str]]:
-    """{table: {column: type}} read from the dbt sources file."""
-    tables = yaml.safe_load(SOURCES_FILE.read_text(encoding="utf-8"))["sources"][0]["tables"]
+def expected_schemas(source: str = "stylehub") -> dict[str, dict[str, str]]:
+    """{table: {column: type}} read from one dbt sources file."""
+    text = SOURCE_FILES[source].read_text(encoding="utf-8")
+    tables = yaml.safe_load(text)["sources"][0]["tables"]
     return {t["name"]: {c["name"]: c["data_type"] for c in t.get("columns", [])} for t in tables}
 
 
@@ -38,14 +43,32 @@ BQ_KIND_NAMES = {
     "TIMESTAMP": "datetime",
     "DATETIME": "datetime",
 }
+# Postgres information_schema types mapped to the same names.
+PG_KIND_NAMES = {
+    "bigint": "int",
+    "integer": "int",
+    "smallint": "int",
+    "numeric": "number",
+    "double precision": "number",
+    "real": "number",
+    "text": "text",
+    "character varying": "text",
+    "timestamp without time zone": "datetime",
+    "timestamp with time zone": "datetime",
+}
 
 
-def check_declared_schema(table: str, fields: Iterable[Any]) -> None:
-    """Compare declared columns: warn on new, fail on missing or retyped."""
-    expected = expected_schemas().get(table)
+def check_declared_schema(
+    table: str,
+    fields: Iterable[Any],
+    source: str = "stylehub",
+    kinds: dict[str, str] = BQ_KIND_NAMES,
+) -> None:
+    """Compare declared columns (.name, .field_type): warn on new, fail on missing or retyped."""
+    expected = expected_schemas(source).get(table)
     if not expected:
         return
-    declared = {f.name: BQ_KIND_NAMES.get(f.field_type) for f in fields}
+    declared = {f.name: kinds.get(f.field_type) for f in fields}
     added = [col for col in declared if col not in expected]
     removed = [col for col in expected if col not in declared]
     retyped = [
