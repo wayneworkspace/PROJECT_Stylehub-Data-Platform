@@ -17,7 +17,9 @@ orders AS (
     order_id,
     user_id,
     status,
-    DATE(created_at) AS order_date
+    DATE(created_at) AS order_date,
+    is_deleted,
+    deleted_at
   FROM {{ ref('stg_pg__orders') }}
 ),
 
@@ -54,8 +56,9 @@ SELECT
   i.quantity * h.cost AS total_cost_at_sale,
   o.order_date,
   i.created_at,
-  i.is_deleted,
-  i.deleted_at
+  -- Deleted when the item or its order was deleted in Postgres.
+  i.is_deleted OR COALESCE(o.is_deleted, FALSE) AS is_deleted,
+  COALESCE(i.deleted_at, o.deleted_at) AS deleted_at
 FROM items AS i
 LEFT JOIN orders AS o
   ON i.order_id = o.order_id

@@ -142,21 +142,29 @@ def correlation(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
 def findings(df: pd.DataFrame, outliers: pd.DataFrame) -> list[str]:
     """Plain-language conclusions from the numbers above, one sentence each."""
     by_category = kpis_by(df, ["category"])["revenue"]
-    top_share = by_category.iloc[0] / by_category.sum() * 100
     mean, median = df["amount"].mean(), df["amount"].median()
-    corr = correlation(df, NUMERIC_COLUMNS).stack()
-    corr = corr[corr.index.get_level_values(0) != corr.index.get_level_values(1)]
-    pair, value = corr.abs().idxmax(), corr.abs().max()
+    corr = correlation(df, NUMERIC_COLUMNS).stack().dropna()  # empty when nothing varies
+    corr = corr[corr.index.get_level_values(0) != corr.index.get_level_values(1)].abs()
     missing = [c for c in df.columns if df[c].isna().any()]
     skew = (
         "right-skewed: a few large items pull the mean up" if mean > median else "not right-skewed"
     )
-    return [
-        f"{by_category.index[0]} brings the most revenue: {top_share:.0f}% of the total.",
+    lines = []
+    if not by_category.empty:
+        top_share = by_category.iloc[0] / by_category.sum() * 100
+        lines.append(
+            f"{by_category.index[0]} brings the most revenue: {top_share:.0f}% of the total."
+        )
+    lines += [
         f"Item amount is {skew} (mean {mean:,.2f}, median {median:,.2f}); "
         "report the median as the typical item.",
         f"{outliers.loc['amount', 'pct_out']}% of items are amount outliers by IQR; "
         "check them before capping, large orders can be real.",
-        f"Strongest link: {pair[0]} and {pair[1]} (|r| = {value:.2f}).",
-        f"Columns with missing values: {', '.join(missing)}." if missing else "No missing values.",
     ]
+    if not corr.empty:
+        pair = corr.idxmax()
+        lines.append(f"Strongest link: {pair[0]} and {pair[1]} (|r| = {corr.max():.2f}).")
+    lines.append(
+        f"Columns with missing values: {', '.join(missing)}." if missing else "No missing values."
+    )
+    return lines

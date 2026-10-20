@@ -343,6 +343,14 @@ def test_postgres_incremental_ingest(cfg, monkeypatch) -> None:
     with pytest.raises(pg_tables.SourceRowMismatch):
         pg_tables.extract_to_raw("orders", None, end, schema, "2026-10-15", cfg)
     assert gcs.uploaded and not any(b.data for b in gcs.uploaded.values())
+
+    # The cleanup fails too: the read error still comes out, not the cleanup error.
+    def broken_cleanup(*args: object) -> None:
+        raise exceptions.Forbidden("no delete right")
+
+    monkeypatch.setattr(pg_tables.raw_writer, "delete_batch", broken_cleanup)
+    with pytest.raises(pg_tables.SourceRowMismatch):
+        pg_tables.extract_to_raw("orders", None, end, schema, "2026-10-15", cfg)
     with pytest.raises(ValueError, match="No Postgres table"):
         pg_tables.extract_to_raw("events", None, end, schema, "2026-10-15", cfg)
     with pytest.raises(schema_check.SchemaError, match="jsonb"):
@@ -368,7 +376,9 @@ def test_events_bronze_build(cfg, monkeypatch) -> None:
     client.query = fake_query
     events_bronze.main()
     assert ("delete", "proj.stylehub_bronze.events_raw") in client.calls
-    events_bronze.ensure_events_bronze(cfg)  # already there: nothing to do
+    client.calls.clear()
+    events_bronze.ensure_events_bronze(cfg)  # already there: only a leftover copy is deleted
+    assert client.calls == [("delete", "proj.stylehub_bronze.events_raw")]
 
     client.copy_fails_in = {"asia-southeast1", "US"}
     with pytest.raises(RuntimeError, match="either region"):

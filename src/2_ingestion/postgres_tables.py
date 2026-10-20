@@ -130,7 +130,10 @@ def extract_to_raw(
             if written != expected:
                 raise SourceRowMismatch(f"{table}: read {written} rows, the source has {expected}")
         except Exception:
-            raw_writer.delete_batch(raw_name(table), data_date, batch_id, cfg)
+            try:
+                raw_writer.delete_batch(raw_name(table), data_date, batch_id, cfg)
+            except Exception as cleanup_error:  # keep the read error, the real cause
+                log.warning("Could not delete partial batch %s: %s", batch_id, cleanup_error)
             raise
         return written
 

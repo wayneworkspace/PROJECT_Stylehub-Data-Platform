@@ -76,6 +76,12 @@ def test_missing_values_time_features_zscore_and_findings() -> None:
     df.loc[0, "age"] = None
     assert eda.findings(df, eda.outlier_summary(df, ["amount"]))[-1].endswith("age.")
 
+    # One item and no category: no correlation or category sentence, and no crash.
+    one = df.head(1).assign(category=None)
+    lines = eda.findings(one, eda.outlier_summary(one, ["amount"]))
+    assert not any(line.startswith(("Strongest", "None")) for line in lines)
+    assert "brings the most revenue" not in " ".join(lines)
+
 
 def test_reader_renders_sql_and_queries(monkeypatch) -> None:
     cfg = config.Settings(GCP_PROJECT_ID="proj", GCS_BUCKET="bucket")

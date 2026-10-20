@@ -19,7 +19,7 @@ Postgres (course DB) --incremental-->  Raw Zone (GCS, pg_*)    -> Bronze -> Silv
 
 Airflow DAG stylehub_daily, 02:00 UTC, two branches:
   ingest    -> bronze    -> silver    -> gold
-  pg_ingest -> pg_bronze -> pg_silver -> pg_gold
+  pg_ingest -> pg_bronze -> pg_reconcile -> pg_silver -> pg_gold   (paused: PG_ENABLED = False)
   [gold, pg_gold] -> freshness (fails when a Bronze table is older than 26 hours)
 Every step attempt is recorded in stylehub_ops.pipeline_runs; failures post to Discord.
 ```
@@ -57,7 +57,7 @@ Every step attempt is recorded in stylehub_ops.pipeline_runs; failures post to D
 * **Quality:** dbt passed 29 Silver and 13 Gold checks on the course branch and 26 Silver checks on the Postgres branch; unit tests cover 100% of 882 Python statements.
 * **Insights:** the EDA page reads 316,358 Postgres order items of the last 90 days; it found no rule violations (no negative amounts, `amount` always equals `sale_price * quantity`), and 5.7% to 9.4% IQR outliers in price, quantity and amount.
 
-*Current limitations:* runs locally in Docker with one service account key; the Airflow VM is ready in Terraform but off (`ENABLE_AIRFLOW_VM`). Postgres deletes are found by a daily full id compare, not by change data capture. Product cost history starts on 2026-10-01, so older sales use the first known cost. The first Postgres load left some orders without their customer and some items without their order (dbt warnings); the next incremental run fixed the customers, but items without an order remain a warning.
+*Current limitations:* the Postgres branch is paused since 2026-10-20 because the course database host no longer resolves; its Silver and Gold tables keep the last good load until `POSTGRES_URL` works and `PG_ENABLED` is set back to `True` in `dags/main_etl_dag.py`. It also runs locally in Docker with one service account key; the Airflow VM is ready in Terraform but off (`ENABLE_AIRFLOW_VM`). Postgres deletes are found by a daily full id compare, not by change data capture. Product cost history starts on 2026-10-01, so older sales use the first known cost. The first Postgres load left some orders without their customer and some items without their order (dbt warnings); the next incremental run fixed the customers, but items without an order remain a warning.
 
 ## Quick Start
 

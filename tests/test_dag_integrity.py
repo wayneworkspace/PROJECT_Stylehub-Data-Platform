@@ -1,6 +1,7 @@
 """DAGs load without import errors; runs inside the Airflow image."""
 
 import sys
+from importlib import import_module
 from itertools import pairwise
 
 import pytest
@@ -14,11 +15,13 @@ def test_dags_load() -> None:
     bag = dagbag.DagBag(settings.DAGS_FOLDER)
     assert not bag.import_errors, bag.import_errors
     dag = bag.dags["stylehub_daily"]
+    main_dag = import_module("main_etl_dag")  # PG_ENABLED pauses the Postgres branch
     csv = ["ingest", "bronze", "silver", "gold"]
     pg = ["pg_ingest", "pg_bronze", "pg_reconcile", "pg_silver", "pg_gold"]
-    assert set(dag.task_ids) == {*csv, *pg, "freshness"}
-    for branch in (csv, pg):
+    branches = [csv, pg] if main_dag.PG_ENABLED else [csv]
+    assert set(dag.task_ids) == {*(t for b in branches for t in b), "freshness"}
+    for branch in branches:
         for before, after in pairwise(branch):
             assert dag.get_task(after).upstream_task_ids == {before}
-    assert dag.get_task("freshness").upstream_task_ids == {"gold", "pg_gold"}
+    assert dag.get_task("freshness").upstream_task_ids == {b[-1] for b in branches}
     assert dag.on_failure_callback and dag.default_args["on_failure_callback"]

@@ -17,6 +17,11 @@ from utils_dag import (
 # Two branches; names match STEPS in run_daily.py.
 CSV_STEPS = ["ingest", "bronze", "silver", "gold"]
 PG_STEPS = ["pg_ingest", "pg_bronze", "pg_reconcile", "pg_silver", "pg_gold"]
+# shortcut: Postgres branch paused, the course database host is gone (NXDOMAIN on
+# 2026-10-20); set True and restore the pg tables in 02_data_freshness.sql once
+# POSTGRES_URL works again.
+PG_ENABLED = False
+STEPS = CSV_STEPS + (PG_STEPS if PG_ENABLED else [])
 
 default_args = {
     "owner": "data-engineering",
@@ -58,11 +63,12 @@ with DAG(
             expect_airflow=False,
             expect_pendulum=False,
         )
-        for step in CSV_STEPS + PG_STEPS
+        for step in STEPS
     }
 
     chain(*(tasks[step] for step in CSV_STEPS))  # ingest >> bronze >> silver >> gold
-    chain(*(tasks[step] for step in PG_STEPS))  # pg_ingest >> ... >> pg_gold
+    if PG_ENABLED:
+        chain(*(tasks[step] for step in PG_STEPS))  # pg_ingest >> ... >> pg_gold
 
     # After both branches: alert when a Bronze table was not loaded today.
     freshness = ExternalPythonOperator(
@@ -73,4 +79,4 @@ with DAG(
         expect_airflow=False,
         expect_pendulum=False,
     )
-    [tasks["gold"], tasks["pg_gold"]] >> freshness
+    [tasks[branch[-1]] for branch in (CSV_STEPS, PG_STEPS) if branch[-1] in tasks] >> freshness

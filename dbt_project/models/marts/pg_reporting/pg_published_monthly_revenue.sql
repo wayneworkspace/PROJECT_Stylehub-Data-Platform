@@ -5,7 +5,8 @@
 --   dbt build --select pg_published_monthly_revenue
 --     --vars '{restate_months: ["2026-09-01"], restate_note: "September returns"}'
 
-{{ config(materialized='incremental', on_schema_change='append_new_columns') }}
+-- full_refresh=false: --full-refresh must never replace what was published.
+{{ config(materialized='incremental', on_schema_change='append_new_columns', full_refresh=false) }}
 
 {%- set restate_months = var('restate_months', []) %}
 
