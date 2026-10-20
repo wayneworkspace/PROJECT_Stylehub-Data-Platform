@@ -89,41 +89,41 @@ docker compose --env-file secrets/.env --profile airflow --profile serving ps   
 | Airflow | `http://localhost:<AIRFLOW_WEB_PORT>` | `AIRFLOW_ADMIN_USER` / `AIRFLOW_ADMIN_PASSWORD` |
 | Dashboard | `http://localhost:8501` | none (localhost only) |
 
-Unpause `stylehub_daily` and `stylehub_api` in the Airflow UI (or `MSYS_NO_PATHCONV=1 docker compose --env-file secrets/.env --profile airflow exec -T airflow-scheduler airflow dags unpause stylehub_daily`).
+For a local run, unpause `stylehub_daily` in the Airflow UI (or `MSYS_NO_PATHCONV=1 docker compose --env-file secrets/.env --profile airflow exec -T airflow-scheduler airflow dags unpause stylehub_daily`).
 
 ## 2. Daily operation
 
-The DAG runs by itself at 02:00 UTC (09:00 Vietnam time) and loads yesterday's data.
+GitHub Actions runs `.github/workflows/pipeline.yml` at 02:00 UTC (09:00 Vietnam time) and loads yesterday's data; no laptop needs to be on. `watchdog.yml` checks freshness again at 12:00 UTC. Airflow in local Docker runs the same steps for tests and demos.
 
 ### 2.1 Morning check (5 minutes)
 
 | Step | Where | Healthy |
 |---|---|---|
-| 1. Docker is running | `docker compose --env-file secrets/.env --profile airflow --profile serving ps` | All services up |
-| 2. Last night's runs | Discord alert channel, then Airflow UI, Grid views of `stylehub_daily` and `stylehub_api` | No red alert; 9 green tasks, and the API run green with `no_new_rows` skipped |
-| 3. Step history | Dashboard "Pipeline health", or `SELECT step, status, rows_loaded, error FROM stylehub_ops.pipeline_runs ORDER BY started_at DESC LIMIT 20` | `success` for each step today |
-| 4. Data freshness | Dashboard "Data freshness" | No table older than 26 hours |
-| 5. dbt warnings | `grep -h '"Done. PASS' logs/dbt/*/dbt.log \| tail -4` | `ERROR=0`; only the known item-order WARN |
+| 1. Last night's run | Discord alert channel, then GitHub > Actions > Pipeline | No red alert; the run is green |
+| 2. Step history | Dashboard "Pipeline health", or `SELECT step, status, rows_loaded, error FROM stylehub_ops.pipeline_runs ORDER BY started_at DESC LIMIT 20` | `success` for each step today |
+| 3. Data freshness | Dashboard "Data freshness" | No table older than 26 hours |
+| 4. dbt warnings | Log of the Pipeline run, steps "silver" and "gold" | `ERROR=0`; only the known item-order WARN |
 
-The laptop must be on and Docker running at 02:00 UTC. The DAG has `catchup=False`: after a break Airflow runs only the newest missed day, so backfill the others (section 2.3).
+Open the Cloud Run dashboard with `gcloud run services proxy stylehub-dashboard --region asia-southeast1 --port 8501`, then `http://localhost:8501`. GitHub stops scheduled workflows after 60 days without a commit; re-enable them in the Actions tab.
 
-### 2.2 When a task failed
+### 2.2 When a run failed
 
-1. The Discord alert names the task, run and first error line. Open the failed task log in the Airflow UI, or `logs/airflow/dag_id=stylehub_daily/run_id=<run>/task_id=<task>/attempt=<n>.log`.
-2. Find the message in `ERRORS.md` and apply the fix.
-3. If you changed code: `docker compose --env-file secrets/.env --profile airflow up -d --build`.
-4. Clear the failed task with **Clear** in the UI (Grid view, click the task); tasks after it run again. The CLI `airflow tasks clear` does not match runs of this DAG on Airflow 3.3.2.
+1. The Discord alert links the failed run. Open it in GitHub Actions and read the first error.
+2. Find the message in `ERRORS.md` and apply the fix (through a pull request if it is code).
+3. Rerun: **Re-run failed jobs** on the run page, or start Pipeline by hand (section 2.3).
 
 Every step is safe to rerun: Raw is append-only, Bronze replaces its day partition, dbt rebuilds tables.
 
 ### 2.3 Run or rerun past days
 
 ```bash
-export MSYS_NO_PATHCONV=1
-AF="docker compose --env-file secrets/.env --profile airflow exec -T airflow-scheduler airflow"
-$AF dags trigger stylehub_daily -l 2026-10-16T02:00:00+00:00          # one data day
-$AF backfill create --dag-id stylehub_daily --from-date 2026-10-10 --to-date 2026-10-16 --max-active-runs 1
+gh workflow run pipeline.yml -f data_date=2026-10-16          # one data day
+for d in 2026-10-10 2026-10-11 2026-10-12; do gh workflow run pipeline.yml -f data_date=$d; done   # runs one after another
 ```
+
+To publish a corrected month: `gh workflow run restate.yml -f months=2026-09-01 -f note="September returns"`, then approve the `production` environment on the run page.
+
+With local Airflow instead: `docker compose --env-file secrets/.env --profile airflow exec -T airflow-scheduler airflow dags trigger stylehub_daily -l 2026-10-16T02:00:00+00:00` (set `MSYS_NO_PATHCONV=1` in Git Bash).
 
 ### 2.4 Change code
 
@@ -139,40 +139,18 @@ uvx pre-commit run --all-files
 git push -u origin HEAD && gh pr create
 ```
 
-After review and a green `ci_test.yml`, merge. `cd_deploy.yml` then applies Terraform, pushes the Airflow image and runs `dbt build` on production. Rebuild local Docker to pick up the change.
+`main` is protected: a pull request merges only when the four CI checks pass. `cd_deploy.yml` then applies Terraform (prod and dev), pushes the tested dashboard image, runs `dbt build` on staging (`_dev` datasets), then on production, and puts the new dashboard on Cloud Run.
 
-### 2.5 Stop and start
+### 2.5 Local Docker
 
 ```bash
 docker compose --env-file secrets/.env --profile airflow --profile serving down     # keeps run history
 docker compose --env-file secrets/.env --profile airflow --profile serving up -d
 ```
 
-## 2.5b Dev datasets (optional)
+### 2.6 Dev datasets
 
-`infra/terraform/envs/dev` builds `stylehub_<layer>_dev` datasets from the same module as prod, with its own state (`stylehub-dev`). Tables there expire after 14 days.
-
-```bash
-cp infra/terraform/envs/dev/terraform.tfvars.example infra/terraform/envs/dev/terraform.tfvars   # fill in
-TF_ENV=dev TF_STATE_BUCKET=dehehe-510014-tfstate infra/scripts/deploy.sh plan
-terraform -chdir=infra/terraform/envs/dev apply tfplan
-```
-
-Point a dev `.env` at the `_dev` datasets (`terraform -chdir=infra/terraform/envs/dev output dataset_ids`) to try dbt changes without touching prod.
-
-## 2.6 Run Airflow on a VM (optional, about 25 USD a month)
-
-The VM runs the same `docker compose` stack and signs in to GCP as `sa-pipeline`, so it needs no key file.
-
-```bash
-cp secrets/.env secrets/.env.vm      # then delete the GOOGLE_APPLICATION_CREDENTIALS line in .env.vm
-gcloud secrets versions add stylehub-dotenv --data-file=secrets/.env.vm
-gh variable set ENABLE_AIRFLOW_VM --body true   # the only switch: CI plans and CD applies it
-# after the next merge to main and CD:
-gcloud compute ssh stylehub-airflow --zone asia-southeast1-b --tunnel-through-iap -- -L 8082:localhost:8082
-```
-
-Open `http://localhost:8082` while the tunnel runs. Startup log on the VM: `sudo journalctl -u google-startup-scripts`. Turn it off with `gh variable set ENABLE_AIRFLOW_VM --body false` and a merge. Never set `enable_airflow_vm` in `terraform.tfvars`: CD does not read that file and would remove the VM.
+`infra/terraform/envs/dev` builds `stylehub_<layer>_dev` datasets from the same module as prod, with its own state (`stylehub-dev`). CD applies it and uses it as staging; tables there expire after 1 day. Point a dev `.env` at the `_dev` datasets (`terraform -chdir=infra/terraform/envs/dev output dataset_ids`) to try dbt changes without touching prod.
 
 ## 3. Regular tasks
 

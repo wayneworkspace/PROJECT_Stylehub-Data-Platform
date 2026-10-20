@@ -121,21 +121,3 @@ variable "dashboard_placeholder_image" {
   type        = string
   default     = "us-docker.pkg.dev/cloudrun/container/hello"
 }
-
-variable "enable_airflow_vm" {
-  description = "Create the Airflow VM (about 25 USD a month). Set only by the GitHub variable ENABLE_AIRFLOW_VM, never in tfvars, or the next CD apply removes the VM."
-  type        = bool
-  default     = false
-}
-
-variable "vm_machine_type" {
-  description = "Machine type of the Airflow VM; 2 vCPU and 4 GB fit Airflow plus dbt."
-  type        = string
-  default     = "e2-medium"
-}
-
-variable "vm_zone" {
-  description = "Zone of the Airflow VM, inside var.region."
-  type        = string
-  default     = "asia-southeast1-b"
-}

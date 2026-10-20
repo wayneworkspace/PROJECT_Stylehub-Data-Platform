@@ -1,3 +1,2 @@
-# Scripts run on Linux (CI, the VM, Jenkins): keep LF line ends on Windows checkouts.
+# Scripts run on Linux (CI and GitHub Actions): keep LF line ends on Windows checkouts.
 *.sh text eol=lf
-Jenkinsfile text eol=lf

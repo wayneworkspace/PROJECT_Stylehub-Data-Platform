@@ -63,18 +63,11 @@ resource "google_cloud_run_v2_service" "dashboard" {
   depends_on = [google_project_service.apis]
 }
 
-# Who may open the dashboard: the developers, plus the uptime check.
+# Who may open the dashboard: the developers.
 resource "google_cloud_run_v2_service_iam_member" "dashboard_viewers" {
   for_each = toset(var.developer_members)
   name     = google_cloud_run_v2_service.dashboard.name
   location = google_cloud_run_v2_service.dashboard.location
   role     = "roles/run.invoker"
   member   = each.value
-}
-
-resource "google_cloud_run_v2_service_iam_member" "uptime_check" {
-  name     = google_cloud_run_v2_service.dashboard.name
-  location = google_cloud_run_v2_service.dashboard.location
-  role     = "roles/run.invoker"
-  member   = "serviceAccount:service-${data.google_project.this.number}@gcp-sa-monitoring-notification.iam.gserviceaccount.com"
 }

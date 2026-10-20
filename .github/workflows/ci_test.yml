@@ -21,7 +21,6 @@ env:
   TFLINT_VERSION: "v0.58.1"
   CHECKOV_VERSION: "3.2.469"
   PIP_AUDIT_VERSION: "2.9.0"
-  ANSIBLE_CORE_VERSION: "2.18.6"
 
 jobs:
   pre-commit:
@@ -65,13 +64,6 @@ jobs:
         run: uv run sqlfluff lint dbt_project/models dbt_project/macros dbt_project/tests include/sql
       - name: Known vulnerabilities in the pipeline packages
         run: uvx "pip-audit==$PIP_AUDIT_VERSION" -r requirements.txt --progress-spinner off
-      - name: Ansible playbook syntax
-        working-directory: infra/ansible
-        env:
-          ANSIBLE_CONFIG: ansible.cfg
-        run: |
-          uvx --from "ansible-core==$ANSIBLE_CORE_VERSION" ansible-playbook --syntax-check airflow_vm.yml \
-            -e project_id=ci -e region=ci -e vm_zone=ci
 
   terraform:
     name: Terraform fmt, validate, plan
@@ -87,7 +79,6 @@ jobs:
       TF_VAR_source_location: ${{ vars.BQ_SOURCE_LOCATION }}
       TF_VAR_state_bucket: ${{ vars.TF_STATE_BUCKET }}
       TF_VAR_github_repository: ${{ github.repository }}
-      TF_VAR_enable_airflow_vm: ${{ vars.ENABLE_AIRFLOW_VM || 'false' }} # one switch for plan and apply
       TF_VAR_billing_account_id: ${{ vars.BILLING_ACCOUNT_ID }}
       TF_VAR_developer_members: ${{ vars.DEVELOPER_MEMBERS || '[]' }}
       # Dev (staging) datasets: the pipeline account builds dbt there before production.
@@ -139,7 +130,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: The compose file is valid
-        run: docker compose --profile airflow --profile serving --profile monitoring --profile jenkins config --quiet
+        run: docker compose --profile airflow --profile serving config --quiet
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       # Layers are cached in GitHub Actions: unchanged requirements skip the install.
       - name: Build the dashboard image
@@ -157,6 +148,8 @@ jobs:
         run: |
           docker run --rm "$DASHBOARD_IMAGE" python -c "import streamlit, importlib; importlib.import_module('src.5_serving.eda')"
           test "$(docker run --rm "$DASHBOARD_IMAGE" id -u)" != "0"
+      # The Airflow image is only built to test the DAG; nothing deploys it (the
+      # daily run is pipeline.yml), so it is not scanned or pushed.
       - name: Build the Airflow image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
@@ -172,7 +165,7 @@ jobs:
         run: |
           docker run --rm -v "$PWD/tests:/opt/airflow/tests:ro" --entrypoint bash "$AIRFLOW_IMAGE" -c \
             "pip install --quiet pytest && python -m pytest -q -p no:cacheprovider -o addopts='' /opt/airflow/tests/test_dag_integrity.py"
-      # Fails on critical vulnerabilities that already have a fixed version.
+      # The dashboard runs on Cloud Run: fail on critical vulnerabilities that have a fix.
       - name: Scan the dashboard image
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
@@ -180,17 +173,10 @@ jobs:
           severity: CRITICAL
           ignore-unfixed: true
           exit-code: "1"
-      - name: Scan the Airflow image
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          image-ref: ${{ env.AIRFLOW_IMAGE }}
-          severity: CRITICAL
-          ignore-unfixed: true
-          exit-code: "1"
-      # On main, hand the tested images to CD; CD never rebuilds.
-      - name: Save the images for CD
+      # On main, hand the tested dashboard image to CD; CD never rebuilds.
+      - name: Save the dashboard image for CD
         if: github.event_name == 'push'
-        run: docker save "$AIRFLOW_IMAGE" "$DASHBOARD_IMAGE" | gzip > images.tar.gz
+        run: docker save "$DASHBOARD_IMAGE" | gzip > images.tar.gz
       - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         if: github.event_name == 'push'
         with:

@@ -6,7 +6,6 @@ locals {
     "sa-github-cd"       = "GitHub CD: pushes images"
     "sa-terraform-plan"  = "GitHub CI: terraform plan, read only"
     "sa-terraform-apply" = "GitHub CD on main: terraform apply"
-    "sa-grafana"         = "Grafana Cloud: reads metrics and pipeline_runs only"
   }
 }
 
@@ -33,17 +32,14 @@ locals {
     "dashboard-ops-viewer"    = { dataset = "ops", role = "roles/bigquery.dataViewer", sa = "sa-dashboard" }
     "dashboard-bronze-viewer" = { dataset = "bronze", role = "roles/bigquery.dataViewer", sa = "sa-dashboard" }
     "dashboard-silver-viewer" = { dataset = "silver", role = "roles/bigquery.dataViewer", sa = "sa-dashboard" }
-    "grafana-ops-viewer"      = { dataset = "ops", role = "roles/bigquery.dataViewer", sa = "sa-grafana" }
   }
 
   project_roles = {
     "pipeline-job-user"  = { role = "roles/bigquery.jobUser", sa = "sa-pipeline" }
     "dashboard-job-user" = { role = "roles/bigquery.jobUser", sa = "sa-dashboard" }
-    "grafana-job-user"   = { role = "roles/bigquery.jobUser", sa = "sa-grafana" }
     # to_dataframe() reads through the BigQuery Storage API, which needs read sessions.
     "pipeline-read-sessions"  = { role = "roles/bigquery.readSessionUser", sa = "sa-pipeline" }
     "dashboard-read-sessions" = { role = "roles/bigquery.readSessionUser", sa = "sa-dashboard" }
-    "grafana-metrics"         = { role = "roles/monitoring.viewer", sa = "sa-grafana" }
     # CD puts the tested image on the Cloud Run dashboard.
     "cd-run-developer" = { role = "roles/run.developer", sa = "sa-github-cd" }
     # Plan reads metadata and IAM policies only, never table rows or files.
@@ -56,10 +52,7 @@ locals {
     "plan-registry"     = { role = "roles/artifactregistry.reader", sa = "sa-terraform-plan" }
     "plan-log-metrics"  = { role = "roles/logging.viewer", sa = "sa-terraform-plan" }
     "plan-alerts"       = { role = "roles/monitoring.alertPolicyViewer", sa = "sa-terraform-plan" }
-    "plan-secrets"      = { role = "roles/secretmanager.viewer", sa = "sa-terraform-plan" }
-    "plan-compute"      = { role = "roles/compute.viewer", sa = "sa-terraform-plan" }
     "plan-run"          = { role = "roles/run.viewer", sa = "sa-terraform-plan" }
-    "plan-uptime"       = { role = "roles/monitoring.uptimeCheckConfigViewer", sa = "sa-terraform-plan" }
     "apply-storage"     = { role = "roles/storage.admin", sa = "sa-terraform-apply" }
     "apply-bigquery"    = { role = "roles/bigquery.admin", sa = "sa-terraform-apply" }
     "apply-registry"    = { role = "roles/artifactregistry.admin", sa = "sa-terraform-apply" }
@@ -69,11 +62,7 @@ locals {
     "apply-apis"        = { role = "roles/serviceusage.serviceUsageAdmin", sa = "sa-terraform-apply" }
     "apply-log-metrics" = { role = "roles/logging.configWriter", sa = "sa-terraform-apply" }
     "apply-alerts"      = { role = "roles/monitoring.alertPolicyEditor", sa = "sa-terraform-apply" }
-    "apply-secrets"     = { role = "roles/secretmanager.admin", sa = "sa-terraform-apply" }
-    "apply-compute"     = { role = "roles/compute.instanceAdmin.v1", sa = "sa-terraform-apply" }
-    "apply-firewall"    = { role = "roles/compute.securityAdmin", sa = "sa-terraform-apply" }
     "apply-run"         = { role = "roles/run.admin", sa = "sa-terraform-apply" }
-    "apply-uptime"      = { role = "roles/monitoring.uptimeCheckConfigEditor", sa = "sa-terraform-apply" }
   }
 }
 
@@ -112,13 +101,6 @@ resource "google_artifact_registry_repository_iam_member" "runtime_reads" {
   location   = google_artifact_registry_repository.images.location
   role       = "roles/artifactregistry.reader"
   member     = local.sa[each.value]
-}
-
-# Apply may attach sa-pipeline to the Airflow VM, and no other account.
-resource "google_service_account_iam_member" "apply_uses_pipeline" {
-  service_account_id = google_service_account.this["sa-pipeline"].name
-  role               = "roles/iam.serviceAccountUser"
-  member             = local.sa["sa-terraform-apply"]
 }
 
 # The dashboard runs as sa-dashboard: apply creates the service, CD deploys revisions.

@@ -1,16 +1,13 @@
 # Local Docker setup; nothing starts unless you pick a profile.
-#   airflow     docker compose --env-file secrets/.env --profile airflow up -d --build     (localhost:8080)
-#   serving     docker compose --env-file secrets/.env --profile serving up -d --build     (localhost:8501)
-#   monitoring  add --profile monitoring to airflow: Prometheus :9090, Grafana :3000
-#   jenkins     docker compose --profile jenkins up -d                                      (localhost:8090)
-# Images contain the code, so rebuild with --build after changes. To run the image
-# CI tested instead, set AIRFLOW_IMAGE or DASHBOARD_IMAGE to its registry tag and
-# use `pull` and `up -d --no-build` (the Airflow VM does this, see infra/ansible).
+#   airflow  docker compose --env-file secrets/.env --profile airflow up -d --build  (localhost:8080)
+#   serving  docker compose --env-file secrets/.env --profile serving up -d --build  (localhost:8501)
+# Images contain the code, so rebuild with --build after changes. To run the
+# dashboard image CI tested instead, set DASHBOARD_IMAGE to its registry tag and
+# use `pull` and `up -d --no-build`. Production runs from .github/workflows/pipeline.yml.
 # AIRFLOW_ values in secrets/.env are for a throwaway local container.
 
 x-airflow-common: &airflow-common
   profiles: ["airflow"]
-  image: ${AIRFLOW_IMAGE:-stylehub-airflow:local}
   build:
     context: .
     dockerfile: Dockerfile
@@ -36,11 +33,6 @@ x-airflow-common: &airflow-common
     PYTHONPATH: /opt/airflow  # makes config.airflow_local_settings importable
     DBT_USE_COLORS: "false"  # task logs are files, so no color codes
     ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}  # Discord alerts; empty means log only
-    # Airflow metrics over StatsD; read by statsd-exporter in the monitoring profile.
-    AIRFLOW__METRICS__STATSD_ON: "true"
-    AIRFLOW__METRICS__STATSD_HOST: statsd-exporter
-    AIRFLOW__METRICS__STATSD_PORT: "9125"
-    AIRFLOW__METRICS__STATSD_PREFIX: airflow
   volumes:
     # Secrets, logging config and logs; drop secrets on a VM.
     - ./secrets:/opt/stylehub/secrets:ro
@@ -147,65 +139,5 @@ services:
       timeout: 30s
       retries: 5
 
-  # Monitoring of the Airflow host: run together with the airflow profile.
-  prometheus:
-    profiles: ["monitoring"]
-    image: prom/prometheus:v3.5.0
-    restart: unless-stopped
-    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=15d"]
-    volumes:
-      - ./config/monitoring/prometheus:/etc/prometheus:ro
-      - prometheus-data:/prometheus
-    ports:
-      - "127.0.0.1:9090:9090"
-
-  node-exporter:  # CPU, memory and disk of the host
-    profiles: ["monitoring"]
-    image: prom/node-exporter:v1.9.1
-    restart: unless-stopped
-    command: ["--path.rootfs=/host"]
-    pid: host
-    volumes:
-      - /:/host:ro,rslave
-
-  statsd-exporter:  # Airflow StatsD metrics to Prometheus
-    profiles: ["monitoring"]
-    image: prom/statsd-exporter:v0.28.0
-    restart: unless-stopped
-
-  postgres-exporter:  # the Airflow metadata database
-    profiles: ["monitoring"]
-    image: quay.io/prometheuscommunity/postgres-exporter:v0.17.1
-    restart: unless-stopped
-    environment:
-      DATA_SOURCE_NAME: postgresql://airflow:${AIRFLOW_DB_PASSWORD:-}@airflow-db:5432/airflow?sslmode=disable
-
-  grafana:
-    profiles: ["monitoring"]
-    image: grafana/grafana:12.1.0
-    restart: unless-stopped
-    environment:
-      # Empty: Grafana starts with admin/admin and asks for a new password at first login.
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
-      GF_USERS_ALLOW_SIGN_UP: "false"
-    volumes:
-      - ./config/monitoring/grafana:/etc/grafana/provisioning:ro
-      - grafana-data:/var/lib/grafana
-    ports:
-      - "127.0.0.1:3000:3000"
-
-  # CI on your own machine with the repository's Jenkinsfile (Poll SCM, no webhook).
-  jenkins:
-    profiles: ["jenkins"]
-    image: jenkins/jenkins:2.516.1-lts-jdk21
-    restart: unless-stopped
-    volumes:
-      - jenkins-home:/var/jenkins_home
-    ports:
-      - "127.0.0.1:8090:8080"  # localhost only
-
 volumes:
   airflow-db-data:
-  prometheus-data:
-  grafana-data:
-  jenkins-home:

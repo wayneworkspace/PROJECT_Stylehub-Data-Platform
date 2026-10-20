@@ -66,19 +66,14 @@ Each row: the message you see, why it happens, and the fix. Commands run from th
 | `Cloud Resource Manager API has not been used` | API is off in the project | First apply enables it; or `gcloud services enable cloudresourcemanager.googleapis.com` |
 | `Error acquiring the state lock` | Another plan or apply is running | Wait; `terraform force-unlock <id>` only if it crashed |
 | `Failed to get existing workspaces: bucket doesn't exist` | State bucket not created | `gcloud storage buckets create gs://<state-bucket> --location=asia-southeast1` |
-| VM starts but Airflow is missing | The startup script failed | `sudo journalctl -u google-startup-scripts` on the VM; usually the secret has no version yet |
-| `Permission denied on secret stylehub-dotenv` on the VM | Secret IAM not applied yet | Merge and let CD apply; the VM uses `sa-pipeline` |
+| Pipeline run does not start at 02:00 | GitHub disabled the schedule after 60 days without a commit | Actions > Pipeline > Enable workflow |
+| `403 ... bigquery.readsessions.create` in a Pipeline run | IAM change not applied yet | Merge and let CD apply; `sa-pipeline` gets `roles/bigquery.readSessionUser` |
 | CI plan step skipped | `WIF_PLAN_SERVICE_ACCOUNT` variable not set | Set the variables from `terraform output github_variables` |
 
 ## Products API
 
 | Error message | Cause | Fix |
 |---|---|---|
-| `api_ready` stays in `up_for_reschedule`, then fails | The API is down or blocked | Check `curl https://dummyjson.com/products?limit=1`; the sensor gives up after 10 minutes |
-| `HTTPError 429` / `503` in `fetch_page`, then success | Rate limit or server trouble; retried with backoff | None; lower `AIRFLOW_VAR_STYLEHUB_API_PAGE_SIZE` or the `api_pool` slots if it repeats |
-| `SchemaError: api_products: the API stopped sending: ...` | The API changed its fields | Update `COLUMNS` in `src/2_ingestion/api_products.py` and the dbt models |
-| `conn_id stylehub_api isn't defined` | Connection variable missing in the container | Keep `AIRFLOW_CONN_STYLEHUB_API` in `docker-compose.yaml`, then `up -d` |
-| Tasks stay `scheduled` with `Not scheduling since there are 0 open slots in pool api_pool` | Pool missing or full | `airflow pools set api_pool 2 "..."` (done by `airflow-init`) |
 | `dags trigger` fails with a duplicate logical date | Unpausing already created that run | Use the scheduled run, or another logical date |
 
 ## Alerts

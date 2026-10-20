@@ -27,5 +27,5 @@ COPY --chown=app:app src ./src
 COPY --chown=app:app include ./include
 USER app
 
-# Secrets are never baked in; mount them or use the VM account.
+# Secrets are never baked in; mount them locally, Cloud Run uses sa-dashboard.
 CMD ["streamlit", "run", "src/5_serving/dashboard.py", "--server.address", "0.0.0.0"]

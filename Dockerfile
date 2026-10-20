@@ -1,5 +1,5 @@
 # Airflow image; the pipeline runs in its own venv, /opt/venv/stylehub.
-# Code and DAGs are copied in, so laptop and VM run the same image.
+# Code and DAGs are copied in, so the laptop runs the image CI tested.
 # Build: docker compose --env-file secrets/.env --profile airflow build
 # Base image pinned by digest (read 2026-10-17): docker buildx imagetools inspect apache/airflow:3.3.2-python3.13
 FROM apache/airflow:3.3.2-python3.13@sha256:e9982ad3f49a60418622e1baf80c34b0daf3fa5091a336cb5ee61f0cdd189371

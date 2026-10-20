@@ -9,8 +9,6 @@ resource "google_project_service" "apis" {
     "cloudresourcemanager.googleapis.com",
     "logging.googleapis.com",
     "monitoring.googleapis.com",
-    "secretmanager.googleapis.com",
-    "compute.googleapis.com",
     "run.googleapis.com",
     "billingbudgets.googleapis.com",
   ])
