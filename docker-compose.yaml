@@ -30,9 +30,6 @@ x-airflow-common: &airflow-common
     PYTHONPATH: /opt/airflow  # makes config.airflow_local_settings importable
     DBT_USE_COLORS: "false"  # task logs are files, so no color codes
     ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}  # Discord alerts; empty means log only
-    # Products API: an Airflow Connection and Variable defined by environment variables.
-    AIRFLOW_CONN_STYLEHUB_API: '{"conn_type": "http", "host": "dummyjson.com", "schema": "https"}'
-    AIRFLOW_VAR_STYLEHUB_API_PAGE_SIZE: "50"
   volumes:
     # Secrets, logging config and logs; drop secrets on a VM.
     - ./secrets:/opt/stylehub/secrets:ro
@@ -83,8 +80,7 @@ services:
         : "$${AIRFLOW_ADMIN_PASSWORD:?set AIRFLOW_ADMIN_PASSWORD in secrets/.env}" &&
         : "$${AIRFLOW__API__SECRET_KEY:?set AIRFLOW_SECRET_KEY in secrets/.env}" &&
         : "$${AIRFLOW__CORE__FERNET_KEY:?set AIRFLOW_FERNET_KEY in secrets/.env}" &&
-        airflow db migrate &&
-        airflow pools set api_pool 2 "Products API: at most 2 requests at once"
+        airflow db migrate
 
   # Web page and task API; replaces the Airflow 2 webserver.
   airflow-apiserver:

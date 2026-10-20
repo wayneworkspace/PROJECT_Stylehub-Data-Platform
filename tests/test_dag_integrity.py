@@ -22,10 +22,3 @@ def test_dags_load() -> None:
             assert dag.get_task(after).upstream_task_ids == {before}
     assert dag.get_task("freshness").upstream_task_ids == {"gold", "pg_gold"}
     assert dag.on_failure_callback and dag.default_args["on_failure_callback"]
-
-    api = bag.dags["stylehub_api"]
-    flow = ["api_ready", "plan_pages", "fetch_page", "any_rows", "api_bronze", "api_silver"]
-    assert set(api.task_ids) == {*flow, "no_new_rows"}
-    assert api.get_task("fetch_page").pool == "api_pool"
-    assert api.get_task("api_silver").upstream_task_ids == {"api_bronze"}
-    assert api.get_task("any_rows").downstream_task_ids == {"api_bronze", "no_new_rows"}
