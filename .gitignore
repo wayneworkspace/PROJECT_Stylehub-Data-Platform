@@ -29,6 +29,7 @@ RULES.md
 tfplan
 
 output/
+backups/
 
 # Local guides and course material; only these three docs go to Git.
 docs/*
