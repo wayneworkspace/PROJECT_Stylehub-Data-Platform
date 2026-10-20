@@ -3,6 +3,12 @@
 -- source updated_at: it answers "on the day a report went out, what did we know?".
 -- As-of query: valid_from <= t AND t < valid_to.
 
+-- Monthly partitions like pg_fact_orders; as-of questions filter by order month.
+{{ config(
+    partition_by={'field': 'order_date', 'data_type': 'date', 'granularity': 'month'},
+    cluster_by=['order_id']
+) }}
+
 WITH loaded AS (
   SELECT
     id AS order_id,

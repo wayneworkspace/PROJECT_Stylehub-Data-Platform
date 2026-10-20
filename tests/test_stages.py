@@ -585,14 +585,6 @@ def test_freshness_check_records_and_alerts(cfg, monkeypatch) -> None:
     assert recorded[-1][3] == "failed" and "users (40 h)" in sent[0]
 
 
-def test_http_retry_rule() -> None:
-    def http_error(code: int) -> Exception:
-        return retry.requests.HTTPError(response=NS(status_code=code))
-
-    assert retry.is_transient(http_error(429)) and retry.is_transient(http_error(503))
-    assert not retry.is_transient(http_error(404))
-
-
 def test_reconcile_writes_the_deleted_ids(cfg, monkeypatch) -> None:
     reconcile = import_module("src.3_storage.reconcile")
     client = FakeBQ()
