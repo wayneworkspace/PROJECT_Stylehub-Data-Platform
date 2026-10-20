@@ -8,7 +8,7 @@ WITH today AS (
     DATE_TRUNC(order_date, MONTH) AS month,
     SUM(amount) AS revenue_now
   FROM {{ ref('pg_fact_order_items') }}
-  WHERE {{ revenue_order_filter('status') }} AND NOT is_deleted
+  WHERE {{ pg_revenue_filter('status') }}
   GROUP BY month
 ),
 

@@ -10,7 +10,7 @@ WITH items AS (
   FROM {{ ref('pg_fact_order_items') }} AS i
   LEFT JOIN {{ ref('pg_dim_users') }} AS u
     ON i.user_id = u.id
-  WHERE {{ revenue_order_filter('i.status') }} AND NOT i.is_deleted
+  WHERE {{ pg_revenue_filter('i.status') }}
 )
 
 SELECT

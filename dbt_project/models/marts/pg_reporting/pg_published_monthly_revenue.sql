@@ -16,8 +16,7 @@ WITH monthly AS (
     COUNT(DISTINCT order_id) AS orders
   FROM {{ ref('pg_fact_order_items') }}
   WHERE
-    {{ revenue_order_filter('status') }}
-    AND NOT is_deleted
+    {{ pg_revenue_filter('status') }}
     AND order_date < DATE_TRUNC(CURRENT_DATE(), MONTH)
   GROUP BY month
 ),
