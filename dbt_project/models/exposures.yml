@@ -6,8 +6,10 @@ exposures:
     label: StyleHub Streamlit dashboard
     type: dashboard
     maturity: medium
+    # Private Cloud Run service: open it with
+    # gcloud run services proxy stylehub-dashboard --region asia-southeast1 --port 8501
     url: http://localhost:8501
-    description: Pipeline health page and the EDA page over 90 days of Postgres order items.
+    description: Pipeline health page and the EDA page over 90 days of Postgres order items, on Cloud Run.
     depends_on:
       - ref('pg_fact_order_items')
       - ref('pg_dim_products')
