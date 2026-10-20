@@ -54,18 +54,17 @@ resource "google_storage_bucket" "raw" {
   depends_on = [google_project_service.apis]
 }
 
-resource "google_bigquery_dataset" "this" {
-  for_each   = var.datasets
-  dataset_id = each.value
-  location   = each.key == "source" ? coalesce(var.source_location, var.region) : var.region
+module "dataset" {
+  source   = "./modules/bigquery_dataset"
+  for_each = var.datasets
 
-  default_table_expiration_ms = (
-    each.key == "staging" ? var.staging_table_expiration_days * 24 * 3600 * 1000 : null
-  )
-  delete_contents_on_destroy = false
-
-  lifecycle {
-    prevent_destroy = true
+  dataset_id            = each.value
+  location              = each.key == "source" ? coalesce(var.source_location, var.region) : var.region
+  table_expiration_days = each.key == "staging" ? var.staging_table_expiration_days : null
+  # Data rights sit on datasets (iam.tf, local.dataset_access).
+  members = {
+    for name, access in local.dataset_access : name => { role = access.role, member = local.sa[access.sa] }
+    if access.dataset == each.key
   }
 
   depends_on = [google_project_service.apis]
@@ -73,7 +72,7 @@ resource "google_bigquery_dataset" "this" {
 
 # One row per pipeline step per run; written by src/3_storage/runs.py.
 resource "google_bigquery_table" "pipeline_runs" {
-  dataset_id          = google_bigquery_dataset.this["ops"].dataset_id
+  dataset_id          = module.dataset["ops"].dataset_id
   table_id            = "pipeline_runs"
   deletion_protection = true
 

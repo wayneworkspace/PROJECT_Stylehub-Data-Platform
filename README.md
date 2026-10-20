@@ -48,7 +48,7 @@ Every step attempt is recorded in stylehub_ops.pipeline_runs; failures post to D
 | **Orchestration** | Apache Airflow 3 | Daily schedule, retries, timeouts and backfills with clear task dependencies |
 | **Monitoring** | Discord webhook, Cloud Monitoring | A chat message reaches people at once; the log metric also catches failures outside Airflow, such as dbt in CD |
 | **Serving** | Streamlit, Altair | A Python-only dashboard; Altair charts ship with Streamlit, no extra dependency |
-| **Infrastructure** | Terraform, Workload Identity Federation, Secret Manager | Every cloud resource in code, remote state, short-lived GitHub tokens instead of key files; server secrets kept out of Terraform state |
+| **Infrastructure** | Terraform (module `bigquery_dataset`, prod and dev roots), Workload Identity Federation, Secret Manager | Every cloud resource in code, one module reused by two environments with separate state, short-lived GitHub tokens instead of key files; server secrets kept out of Terraform state |
 | **Code & Quality** | Python 3.13, uv, Ruff, pytest, SQLFluff, pre-commit, colorlog | Same checks on a laptop and in CI; colored terminal logs and plain log files |
 
 ## 4. Results Achieved
@@ -121,7 +121,7 @@ src/            # Python source by stage: 1_source ... 5_serving, plus 0_utils/l
 dags/           # Airflow DAG and its helper
 dbt_project/    # dbt models, tests, macros, snapshot
 include/sql/    # Plain SQL run by Python (events build, dashboard queries)
-infra/          # Terraform and the deploy script
+infra/          # Terraform (prod root, envs/dev, modules/) and the deploy script
 config/         # Airflow logging config
 tests/          # pytest unit tests and the DAG integrity test
 docs/           # RUNBOOK.md, ERRORS.md, SPEC.md (other docs stay local)

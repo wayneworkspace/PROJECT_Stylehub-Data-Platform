@@ -86,6 +86,8 @@ jobs:
           terraform -chdir=infra/terraform fmt -check -recursive
           terraform -chdir=infra/terraform init -backend=false -input=false
           terraform -chdir=infra/terraform validate
+          terraform -chdir=infra/terraform/envs/dev init -backend=false -input=false
+          terraform -chdir=infra/terraform/envs/dev validate
       # Plan needs the plan account; forks and repos without it skip this.
       - name: Log in to Google Cloud for plan
         id: auth

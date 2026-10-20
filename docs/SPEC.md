@@ -141,6 +141,15 @@
 | dbt | Colored screen output, JSON file per layer in `logs/dbt` |
 | Terraform | `deploy.sh` colors console, saves plain copies in `logs/infra` |
 
+## Infrastructure layout
+
+| Part | Path | Rule |
+|---|---|---|
+| Prod root | `infra/terraform/` | Applied by CD from `main`; state prefix `stylehub` |
+| Dev root | `infra/terraform/envs/dev/` | Applied by hand; `_dev` datasets; state prefix `stylehub-dev` |
+| Dataset module | `infra/terraform/modules/bigquery_dataset/` | Dataset plus dataset IAM, `prevent_destroy`; used by both roots |
+| State moves | `infra/terraform/moved.tf` | Renames state entries into the module; delete after one apply |
+
 ## Known limits
 
 - Terraform is applied by CD from `main`; changes made in the console are undone.

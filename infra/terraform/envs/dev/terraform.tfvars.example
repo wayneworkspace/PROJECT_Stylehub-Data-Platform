@@ -1,0 +1,3 @@
+# Copy to terraform.tfvars (git-ignored) in this folder.
+project_id = "your-project-id"
+editors    = ["user:you@example.com"]
