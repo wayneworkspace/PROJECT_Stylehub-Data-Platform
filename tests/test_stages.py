@@ -5,11 +5,13 @@ import logging
 import os
 import sys
 from datetime import datetime
+from decimal import Decimal
 from importlib import import_module
 from types import SimpleNamespace as NS
 from typing import ClassVar
 
 import pandas as pd
+import pyarrow.parquet as pq
 import pytest
 from google.api_core import exceptions
 
@@ -116,6 +118,9 @@ class FakeBlob:
     def open(self, mode: str) -> io.BytesIO:
         return io.BytesIO(self.data)
 
+    def delete(self) -> None:
+        self.data = None  # FakeGCS.bucket().list_blobs skips deleted blobs
+
 
 class Listing(list):
     prefixes: ClassVar[set[str]] = set()
@@ -131,7 +136,10 @@ class FakeGCS:
         def blob(path: str) -> FakeBlob:
             return self.uploaded.setdefault(path, FakeBlob(path))
 
-        return NS(name=name, blob=blob)
+        def list_blobs(prefix: str) -> list[FakeBlob]:
+            return [b for p, b in self.uploaded.items() if p.startswith(prefix) and b.data]
+
+        return NS(name=name, blob=blob, list_blobs=list_blobs)
 
     def list_blobs(self, bucket: str, prefix: str, delimiter: str | None = None) -> Listing:
         listing = Listing(() if delimiter else self.blobs)
@@ -292,25 +300,53 @@ def test_postgres_incremental_ingest(cfg, monkeypatch) -> None:
     bronze = "proj.stylehub_bronze.pg_orders"
     client, gcs = FakeBQ({bronze: NS()}), FakeGCS()
     client.query_rows = [(datetime.fromisoformat("2026-10-14T23:00"),)]
+    schema = pg_tables.arrow_schema("orders", [("id", "bigint"), ("total_amount", "numeric")])
     monkeypatch.setattr(config, "bq_client", lambda cfg: client)
     monkeypatch.setattr(config, "gcs_client", lambda cfg: gcs)
-    monkeypatch.setattr(config, "pg_engine", lambda cfg: FakePg(2))
-    monkeypatch.setattr(pg_tables, "check_schema", lambda table, cfg: None)  # tested below
-    monkeypatch.setattr(pg_tables.pd, "read_sql", lambda *a, **k: pd.DataFrame({"id": [1, 2]}))
-    assert pg_tables.ingest_table("orders", "2026-10-15", cfg) == 2
+    monkeypatch.setattr(config, "pg_engine", lambda cfg: FakePg(3))
+    monkeypatch.setattr(pg_tables, "check_schema", lambda table, cfg: schema)  # tested below
+    chunks = [
+        pd.DataFrame({"id": [1, 2], "total_amount": [None, None]}),  # all NULL in this chunk
+        pd.DataFrame({"id": [3], "total_amount": [Decimal("9.50")]}),
+    ]
+    asked: dict = {}
+
+    def read_sql(*args: object, **kwargs: object) -> list[pd.DataFrame]:
+        asked.update(kwargs)
+        return chunks
+
+    monkeypatch.setattr(pg_tables.pd, "read_sql", read_sql)
+    assert pg_tables.ingest_table("orders", "2026-10-15", cfg) == 3
+    assert asked["chunksize"] == pg_tables.CHUNK_ROWS
     assert "_PARTITIONDATE < DATE '2026-10-15'" in client.calls[0][1]
-    assert next(iter(gcs.uploaded)).startswith("raw/stylehub/pg_orders/date=2026-10-15/")
+    paths = sorted(gcs.uploaded)
+    assert [p.rsplit("/", 1)[1] for p in paths] == ["part_00000.parquet", "part_00001.parquet"]
+    assert paths[0].startswith("raw/stylehub/pg_orders/date=2026-10-15/batch_id=")
+    # Every part has the same types, even a column that is NULL in one chunk.
+    types = {
+        str(pq.read_schema(io.BytesIO(gcs.uploaded[p].data)).field("total_amount").type)
+        for p in paths
+    }
+    assert types == {"decimal128(38, 9)"}
 
     monkeypatch.setattr(config, "pg_engine", lambda cfg: FakePg(0))
-    monkeypatch.setattr(pg_tables.pd, "read_sql", lambda *a, **k: pd.DataFrame({"id": []}))
+    chunks = [pd.DataFrame({"id": []})]  # pandas yields one empty chunk when nothing matched
     client.tables.clear()  # first run: no Bronze table, full load
+    gcs.uploaded.clear()
     assert pg_tables.ingest_table("orders", "2026-10-15", cfg) == 0
+    assert not gcs.uploaded
 
+    # Fewer rows than the source count: the partial batch is deleted.
     monkeypatch.setattr(config, "pg_engine", lambda cfg: FakePg(9))
+    chunks = [pd.DataFrame({"id": [1], "total_amount": [None]})]
+    end = datetime.fromisoformat("2026-10-16")
     with pytest.raises(pg_tables.SourceRowMismatch):
-        pg_tables.extract("orders", None, datetime.fromisoformat("2026-10-16"), cfg)
+        pg_tables.extract_to_raw("orders", None, end, schema, "2026-10-15", cfg)
+    assert gcs.uploaded and not any(b.data for b in gcs.uploaded.values())
     with pytest.raises(ValueError, match="No Postgres table"):
-        pg_tables.extract("events", None, datetime.fromisoformat("2026-10-16"), cfg)
+        pg_tables.extract_to_raw("events", None, end, schema, "2026-10-15", cfg)
+    with pytest.raises(schema_check.SchemaError, match="jsonb"):
+        pg_tables.arrow_schema("orders", [("id", "bigint"), ("meta", "jsonb")])
 
 
 # 3_storage ------------------------------------------------------------------------------
@@ -600,7 +636,10 @@ def test_postgres_schema_check(cfg, monkeypatch) -> None:
             return NS(all=lambda: columns)
 
     monkeypatch.setattr(config, "pg_engine", lambda cfg: Conn(0))
-    pg_tables.check_schema("orders", cfg)  # matches the sources file
+    schema = pg_tables.check_schema("orders", cfg)  # matches the sources file
+    assert schema.names == list(expected) and str(schema.field("total_amount").type) == (
+        "decimal128(38, 9)"
+    )
     columns[2] = (columns[2][0], "text")  # total_amount turned into text
     with pytest.raises(schema_check.SchemaError, match="type changes"):
         pg_tables.check_schema("orders", cfg)
