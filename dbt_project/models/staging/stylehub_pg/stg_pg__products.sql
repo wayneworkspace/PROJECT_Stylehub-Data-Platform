@@ -13,5 +13,7 @@ SELECT
   sku,
   cost,
   retail_price,
-  CAST(updated_at AS TIMESTAMP) AS updated_at
+  CAST(updated_at AS TIMESTAMP) AS updated_at,
+  is_deleted,
+  deleted_at
 FROM latest

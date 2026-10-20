@@ -15,7 +15,7 @@ pg_tables = import_module("src.2_ingestion.postgres_tables")
 
 log = get_logger(__name__)
 
-TOMBSTONES = "pg_deleted_ids"  # Silver drops these ids (macro latest_pg_rows)
+TOMBSTONES = "pg_deleted_ids"  # Silver flags these ids is_deleted (macro latest_pg_rows)
 SCHEMA = [
     bigquery.SchemaField("table_name", "STRING", mode="REQUIRED"),
     bigquery.SchemaField("id", "INT64", mode="REQUIRED"),
@@ -42,20 +42,35 @@ def bronze_ids(client: bigquery.Client, table: str, cfg: config.Settings) -> set
     return {row.id for row in job}
 
 
+def known_deletions(client: bigquery.Client, target: str) -> dict[tuple[str, int], datetime]:
+    """detected_at of ids already flagged, so deleted_at stays the first day seen."""
+    if not bq.table_exists(client, target):
+        return {}
+    # list_rows reads the table without a billed query.
+    frame = retry.call_with_retry(
+        lambda: client.list_rows(target, selected_fields=SCHEMA).to_dataframe()
+    )
+    return {(r.table_name, r.id): r.detected_at for r in frame.itertuples()}
+
+
 def reconcile(cfg: config.Settings) -> dict[str, int]:
     """Replace the tombstone table with today's full set; return counts per table."""
     client = config.bq_client(cfg)
+    target = f"{cfg.project}.{cfg.bronze}.{TOMBSTONES}"
+    known = known_deletions(client, target)
     now = datetime.now(UTC)
     rows, counts = [], {}
     for table in pg_tables.PG_TABLES:
         deleted = sorted(bronze_ids(client, table, cfg) - source_ids(table, cfg))
         counts[table] = len(deleted)
-        rows += [{"table_name": table, "id": i, "detected_at": now} for i in deleted]
+        rows += [
+            {"table_name": table, "id": i, "detected_at": known.get((table, i), now)}
+            for i in deleted
+        ]
     frame = pd.DataFrame(rows, columns=[f.name for f in SCHEMA]).astype({"id": "Int64"})
     job_config = bigquery.LoadJobConfig(
         schema=SCHEMA, write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE
     )
-    target = f"{cfg.project}.{cfg.bronze}.{TOMBSTONES}"
     retry.call_with_retry(
         lambda: client.load_table_from_dataframe(frame, target, job_config=job_config).result()
     )

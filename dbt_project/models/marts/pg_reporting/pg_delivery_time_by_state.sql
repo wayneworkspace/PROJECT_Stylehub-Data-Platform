@@ -7,7 +7,7 @@ WITH delivered AS (
   FROM {{ ref('pg_fact_shipments') }} AS s
   LEFT JOIN {{ ref('pg_dim_users') }} AS u
     ON s.user_id = u.id
-  WHERE s.delivered_at IS NOT NULL
+  WHERE s.delivered_at IS NOT NULL AND NOT s.is_deleted
 )
 
 SELECT

@@ -21,6 +21,10 @@ vars:
   events_lookback_days: 3
   # Order statuses that are not revenue (revenue_order_filter macro).
   revenue_excluded_statuses: ['Cancelled']
+  # Published months to restate as a new version, e.g. ['2026-09-01'], and why
+  # (pg_published_monthly_revenue). Pass with --vars; leave empty in daily runs.
+  restate_months: []
+  restate_note: 'Restated'
 
 seeds:
   stylehub:

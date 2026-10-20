@@ -24,13 +24,25 @@ models:
 
   - name: pg_published_monthly_revenue
     description: >
-      Closed months as first published; never rewritten (append-only incremental).
+      Closed months as published, one row per version (append-only incremental).
+      Version 1 is the first publication; a 'restated' version is added only when
+      the month is named in the restate_months var, with restate_note as the reason.
+      Rows written before versions existed have NULL version_number (read as 1).
       tests/pg_published_revenue_drift.sql warns when today's number differs.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [month, version_number]
     columns:
       - name: month
-        data_tests: [unique, not_null]
+        data_tests: [not_null]
       - name: published_at
         data_tests: [not_null]
+      - name: status
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [published, restated]
 
   - name: pg_revenue_by_region
     description: Revenue, orders and customers per region and clean country name (grain region, country).

@@ -75,7 +75,7 @@ def step_pg_bronze(data_date: str, cfg: config.Settings) -> StepOutcome:
 
 
 def step_pg_reconcile(data_date: str, cfg: config.Settings) -> StepOutcome:
-    # Full id compare each day; Silver drops the deleted ids.
+    # Full id compare each day; Silver flags the deleted ids is_deleted.
     counts = reconcile.reconcile(cfg)
     return StepOutcome(sum(counts.values()), {"deleted_by_table": counts})
 

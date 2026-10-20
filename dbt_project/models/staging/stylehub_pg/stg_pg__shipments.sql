@@ -10,5 +10,7 @@ SELECT
   CAST(shipped_at AS TIMESTAMP) AS shipped_at,
   CAST(delivered_at AS TIMESTAMP) AS delivered_at,
   CAST(returned_at AS TIMESTAMP) AS returned_at,
-  CAST(updated_at AS TIMESTAMP) AS updated_at
+  CAST(updated_at AS TIMESTAMP) AS updated_at,
+  is_deleted,
+  deleted_at
 FROM latest

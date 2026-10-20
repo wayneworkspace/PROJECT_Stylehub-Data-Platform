@@ -579,6 +579,15 @@ def test_reconcile_writes_the_deleted_ids(cfg, monkeypatch) -> None:
     assert sorted(frame["table_name"]) == sorted(pg_tables.PG_TABLES)
     assert set(frame["id"]) == {2}
 
+    # Next day: ids flagged before keep their first detected_at.
+    first_seen = pd.Timestamp("2026-10-01", tz="UTC")
+    client.tables[target] = NS()
+    flagged = pd.DataFrame({"table_name": ["orders"], "id": [2], "detected_at": [first_seen]})
+    client.list_rows = lambda table, selected_fields: NS(to_dataframe=lambda: flagged)
+    reconcile.reconcile(cfg)
+    frame = loaded[-1][1].set_index("table_name")["detected_at"]
+    assert frame["orders"] == first_seen and frame["users"] > first_seen
+
 
 def test_postgres_schema_check(cfg, monkeypatch) -> None:
     pg_types = {"int": "bigint", "number": "numeric", "text": "text"}

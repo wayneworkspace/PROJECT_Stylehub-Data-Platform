@@ -19,6 +19,8 @@ SELECT
   s.shipped_at,
   s.delivered_at,
   s.returned_at,
+  s.is_deleted,
+  s.deleted_at,
   TIMESTAMP_DIFF(s.delivered_at, s.shipped_at, HOUR) AS delivery_hours
 FROM shipments AS s
 LEFT JOIN orders AS o
