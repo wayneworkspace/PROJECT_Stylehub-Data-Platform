@@ -1,0 +1,25 @@
+# Weekly update pull requests; CI checks each one before it can merge.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      python:
+        update-types: [minor, patch]
+  - package-ecosystem: docker
+    directories: ["/"] # Dockerfile and Dockerfile.dashboard
+    schedule:
+      interval: weekly
+  - package-ecosystem: terraform
+    directories: ["/infra/terraform", "/infra/terraform/envs/dev"]
+    schedule:
+      interval: weekly

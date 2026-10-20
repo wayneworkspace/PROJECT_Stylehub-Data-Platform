@@ -1,6 +1,7 @@
 """DAGs load without import errors; runs inside the Airflow image."""
 
 import sys
+from importlib import import_module
 from itertools import pairwise
 
 import pytest
@@ -14,18 +15,14 @@ def test_dags_load() -> None:
     bag = dagbag.DagBag(settings.DAGS_FOLDER)
     assert not bag.import_errors, bag.import_errors
     dag = bag.dags["stylehub_daily"]
+    main_dag = import_module("main_etl_dag")  # PG_ENABLED and API_ENABLED switch branches
     csv = ["ingest", "bronze", "silver", "gold"]
     pg = ["pg_ingest", "pg_bronze", "pg_reconcile", "pg_silver", "pg_gold"]
-    assert set(dag.task_ids) == {*csv, *pg, "freshness"}
-    for branch in (csv, pg):
+    api = ["api_ingest", "api_bronze", "api_silver"]
+    branches = [csv] + [pg] * main_dag.PG_ENABLED + [api] * main_dag.API_ENABLED
+    assert set(dag.task_ids) == {*(t for b in branches for t in b), "freshness"}
+    for branch in branches:
         for before, after in pairwise(branch):
             assert dag.get_task(after).upstream_task_ids == {before}
-    assert dag.get_task("freshness").upstream_task_ids == {"gold", "pg_gold"}
+    assert dag.get_task("freshness").upstream_task_ids == {b[-1] for b in branches}
     assert dag.on_failure_callback and dag.default_args["on_failure_callback"]
-
-    api = bag.dags["stylehub_api"]
-    flow = ["api_ready", "plan_pages", "fetch_page", "any_rows", "api_bronze", "api_silver"]
-    assert set(api.task_ids) == {*flow, "no_new_rows"}
-    assert api.get_task("fetch_page").pool == "api_pool"
-    assert api.get_task("api_silver").upstream_task_ids == {"api_bronze"}
-    assert api.get_task("any_rows").downstream_task_ids == {"api_bronze", "no_new_rows"}

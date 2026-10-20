@@ -61,9 +61,16 @@ def test_raw_path() -> None:
     assert path == "raw/stylehub/orders/date=2026-10-01/batch_id=b1/orders.parquet"
 
 
-def test_batch_ids_from_folders_sorted_and_unique() -> None:
-    folders = ["p/batch_id=2/", "p/batch_id=1/", "p/other/", "p/batch_id=1/"]
-    assert load_bronze.batch_ids_from_folders(folders) == ["1", "2"]
+def test_complete_batches_skip_unfinished_part_batches() -> None:
+    names = [
+        "p/batch_id=2/orders.parquet",  # one-file batch: complete
+        "p/batch_id=1/orders.parquet",
+        "p/batch_id=3/part_00000.parquet",  # parts without _SUCCESS: a failed run
+        "p/batch_id=4/part_00000.parquet",
+        "p/batch_id=4/_SUCCESS",
+        "p/other/file.txt",
+    ]
+    assert load_bronze.complete_batch_ids(names) == ["1", "2", "4"]
 
 
 def test_staging_and_partition_ids() -> None:

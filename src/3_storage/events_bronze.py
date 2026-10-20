@@ -48,15 +48,17 @@ def events_table_exists(cfg: config.Settings) -> bool:
 
 def ensure_events_bronze(cfg: config.Settings) -> None:
     """Build the table if missing, then delete the raw copy."""
+    client = config.bq_client(cfg)
+    raw_id = f"{cfg.project}.{cfg.bronze}.{RAW_COPY}"
     if events_table_exists(cfg):
         log.info("%s already exists, skipping the events build", TABLE)
+        # A copy left by an interrupted build costs storage and is never read.
+        retry.call_with_retry(lambda: client.delete_table(raw_id, not_found_ok=True))
         return
-    client = config.bq_client(cfg)
     log.info("%s is missing: copying events, then building it (a few minutes)", TABLE)
     log.info("%s: %s rows copied", RAW_COPY, f"{copy_events(client, cfg):,}")
     sql = bq.render_sql(SQL_FILE, cfg)
     retry.call_with_retry(lambda: client.query(sql, job_config=bq.query_config(cfg)).result())
-    raw_id = f"{cfg.project}.{cfg.bronze}.{RAW_COPY}"
     retry.call_with_retry(lambda: client.delete_table(raw_id, not_found_ok=True))
     log.info("%s built, %s deleted", TABLE, RAW_COPY)
 

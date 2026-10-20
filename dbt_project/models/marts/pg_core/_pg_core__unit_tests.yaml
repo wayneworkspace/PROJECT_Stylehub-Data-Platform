@@ -1,0 +1,30 @@
+version: 2
+
+# Soft delete reaches facts through their order: no row is deleted in Postgres yet.
+unit_tests:
+  - name: items_of_a_deleted_order_are_deleted
+    description: >
+      Order 2 was deleted in Postgres but its item was not: the item counts as deleted,
+      with the order's deleted_at. Item 1 of a live order stays live.
+    model: pg_fact_order_items
+    config:
+      tags: ["pg_silver"]
+    given:
+      - input: ref('stg_pg__order_items')
+        rows:
+          - {id: 1, order_id: 1, product_id: 10, quantity: 1, amount: 5, is_deleted: false, created_at: "2026-10-01 00:00:00"}
+          - {id: 2, order_id: 2, product_id: 10, quantity: 1, amount: 7, is_deleted: false, created_at: "2026-10-01 00:00:00"}
+      - input: ref('stg_pg__orders')
+        rows:
+          - {order_id: 1, status: Complete, is_deleted: false, created_at: "2026-10-01 00:00:00"}
+          - {order_id: 2, status: Complete, is_deleted: true, deleted_at: "2026-10-08 02:30:00", created_at: "2026-10-01 00:00:00"}
+      - input: ref('stg_pg__products')
+        rows:
+          - {id: 10, cost: 2}
+      - input: ref('pg_dim_products_history')
+        rows:
+          - {product_id: 10, cost: 2, valid_from: "1970-01-01 00:00:00", valid_to: "9999-12-31 00:00:00"}
+    expect:
+      rows:
+        - {id: 1, is_deleted: false, deleted_at: null}
+        - {id: 2, is_deleted: true, deleted_at: "2026-10-08 02:30:00"}

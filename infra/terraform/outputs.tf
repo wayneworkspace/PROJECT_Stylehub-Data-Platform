@@ -16,8 +16,13 @@ output "github_variables" {
 }
 
 output "service_accounts" {
-  description = "Attach sa-pipeline to the Airflow VM and sa-dashboard to the dashboard."
+  description = "sa-pipeline runs the pipeline (GitHub Actions); sa-dashboard runs the Cloud Run dashboard."
   value       = { for name, account in google_service_account.this : name => account.email }
+}
+
+output "dashboard_url" {
+  description = "Cloud Run dashboard; open it through: gcloud run services proxy stylehub-dashboard"
+  value       = google_cloud_run_v2_service.dashboard.uri
 }
 
 output "image_repository" {

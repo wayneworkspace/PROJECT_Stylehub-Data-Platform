@@ -17,22 +17,34 @@ log = get_logger(__name__)
 SNAPSHOT_RETENTION_DAYS = 30
 
 
-def batch_ids_from_folders(folders: list[str]) -> list[str]:
-    """Batch ids from Raw folder names, oldest first."""
-    names = (folder.rstrip("/").rsplit("/", 1)[-1] for folder in folders)
-    return sorted({n.removeprefix("batch_id=") for n in names if n.startswith("batch_id=")})
+SUCCESS_MARKER = "_SUCCESS"  # written last by writers that split a batch into part files
+
+
+def complete_batch_ids(names: list[str]) -> list[str]:
+    """Batch ids from Raw file names, oldest first, without unfinished batches.
+
+    A batch of part files counts only once it has _SUCCESS, so a run that
+    failed half way is never loaded; a one-file batch is complete when it exists.
+    """
+    files: dict[str, set[str]] = {}
+    for name in names:
+        folder, _, file = name.rpartition("/")
+        batch = folder.rsplit("/", 1)[-1]
+        if batch.startswith("batch_id="):
+            files.setdefault(batch.removeprefix("batch_id="), set()).add(file)
+    return sorted(
+        batch
+        for batch, found in files.items()
+        if SUCCESS_MARKER in found or not any(f.startswith("part_") for f in found)
+    )
 
 
 def list_batch_ids(gcs: storage.Client, prefix: str, cfg: config.Settings) -> list[str]:
-    """Batch ids of one table and day in the Raw Zone."""
-
-    def list_folders() -> list[str]:
-        # .prefixes fills only after the lazy listing is fully read.
-        blobs = gcs.list_blobs(cfg.bucket, prefix=prefix, delimiter="/")
-        list(blobs)
-        return sorted(blobs.prefixes)
-
-    return batch_ids_from_folders(retry.call_with_retry(list_folders))
+    """Complete batch ids of one table and day in the Raw Zone."""
+    names = retry.call_with_retry(
+        lambda: [b.name for b in gcs.list_blobs(cfg.bucket, prefix=prefix)]
+    )
+    return complete_batch_ids(names)
 
 
 class RowCountMismatch(RuntimeError):
@@ -111,7 +123,7 @@ def load_day(
         source_format=bigquery.SourceFormat.PARQUET,
         write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
     )
-    uri = f"gs://{cfg.bucket}/{prefix}batch_id={latest}/*"
+    uri = f"gs://{cfg.bucket}/{prefix}batch_id={latest}/*.parquet"  # not the _SUCCESS marker
 
     def load() -> int:
         # WRITE_TRUNCATE makes a retried load job safe.

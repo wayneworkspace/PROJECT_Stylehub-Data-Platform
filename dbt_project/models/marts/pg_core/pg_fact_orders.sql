@@ -11,5 +11,7 @@ SELECT
   status,
   total_amount,
   created_at,
-  DATE(created_at) AS order_date
+  DATE(created_at) AS order_date,
+  is_deleted,
+  deleted_at
 FROM {{ ref('stg_pg__orders') }}

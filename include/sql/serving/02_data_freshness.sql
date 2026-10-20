@@ -1,12 +1,14 @@
 -- Last change of each daily Bronze table, from free metadata.
--- Postgres changes every day, so its two busiest tables are checked too.
+-- Postgres and the API change every day, so their busiest tables are checked too.
 -- last_modified_time also moves when an old partition expires.
 WITH bronze_tables AS (
   SELECT
     table_id AS table_name,
     TIMESTAMP_MILLIS(last_modified_time) AS last_loaded_at
   FROM `${project}.${bronze}.__TABLES__`
-  WHERE table_id IN ('orders', 'order_items', 'products', 'users', 'pg_orders', 'pg_order_items')
+  WHERE table_id IN (
+    'orders', 'order_items', 'products', 'users', 'pg_orders', 'pg_order_items', 'api_users'
+  )
 )
 
 SELECT

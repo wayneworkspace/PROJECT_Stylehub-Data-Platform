@@ -18,6 +18,9 @@ env:
   PYTHON_VERSION: "3.13"
   UV_VERSION: "0.12.13"
   TERRAFORM_VERSION: "1.16.5"
+  TFLINT_VERSION: "v0.58.1"
+  CHECKOV_VERSION: "3.2.469"
+  PIP_AUDIT_VERSION: "2.9.0"
 
 jobs:
   pre-commit:
@@ -46,10 +49,6 @@ jobs:
         run: uv sync --frozen --extra dev --extra dbt --extra serving
       - name: Unit tests with 100% coverage
         run: uv run pytest -q
-      - name: requirements.txt matches uv.lock
-        run: |
-          uv export --frozen --no-hashes --no-dev --extra dbt --no-emit-project -o requirements.txt
-          git diff --exit-code requirements.txt
       - name: dbt parse (no BigQuery connection)
         run: |
           uv run dbt deps --project-dir dbt_project --profiles-dir dbt_project --log-path logs/dbt
@@ -59,6 +58,11 @@ jobs:
           GCS_BUCKET: ci-dummy-bucket
       - name: SQL lint
         run: uv run sqlfluff lint dbt_project/models dbt_project/macros dbt_project/tests include/sql
+      - name: Known vulnerabilities in the locked packages
+        run: |
+          uv export --frozen --no-hashes --no-dev --extra dbt --extra serving --no-emit-project \
+            -o "$RUNNER_TEMP/requirements.txt"
+          uvx "pip-audit==$PIP_AUDIT_VERSION" -r "$RUNNER_TEMP/requirements.txt" --progress-spinner off
 
   terraform:
     name: Terraform fmt, validate, plan
@@ -74,18 +78,32 @@ jobs:
       TF_VAR_source_location: ${{ vars.BQ_SOURCE_LOCATION }}
       TF_VAR_state_bucket: ${{ vars.TF_STATE_BUCKET }}
       TF_VAR_github_repository: ${{ github.repository }}
-      TF_VAR_enable_airflow_vm: ${{ vars.ENABLE_AIRFLOW_VM || 'false' }} # one switch for plan and apply
+      TF_VAR_billing_account_id: ${{ vars.BILLING_ACCOUNT_ID }}
+      TF_VAR_developer_members: ${{ vars.DEVELOPER_MEMBERS || '[]' }}
+      # Dev (staging) datasets: the pipeline account builds dbt there before production.
+      TF_VAR_editors: ${{ vars.WIF_PIPELINE_SERVICE_ACCOUNT && format('["serviceAccount:{0}"]', vars.WIF_PIPELINE_SERVICE_ACCOUNT) || '[]' }}
       TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
           terraform_version: ${{ env.TERRAFORM_VERSION }}
+      - uses: terraform-linters/setup-tflint@6ffdbaa3be476b3431f7275c26966ef32ff60337 # v6.3.2
+        with:
+          tflint_version: ${{ env.TFLINT_VERSION }}
+      - name: tflint (style and mistakes)
+        run: tflint --chdir=infra/terraform --recursive --format=compact
+      - name: checkov (security; skipped checks and reasons in infra/terraform/.checkov.yaml)
+        run: |
+          pipx run "checkov==$CHECKOV_VERSION" -d infra/terraform --framework terraform --quiet \
+            --config-file infra/terraform/.checkov.yaml
       - name: fmt and validate (no cloud access)
         run: |
           terraform -chdir=infra/terraform fmt -check -recursive
           terraform -chdir=infra/terraform init -backend=false -input=false
           terraform -chdir=infra/terraform validate
+          terraform -chdir=infra/terraform/envs/dev init -backend=false -input=false
+          terraform -chdir=infra/terraform/envs/dev validate
       # Plan needs the plan account; forks and repos without it skip this.
       - name: Log in to Google Cloud for plan
         id: auth
@@ -98,7 +116,9 @@ jobs:
           service_account: ${{ vars.WIF_PLAN_SERVICE_ACCOUNT }}
       - name: terraform plan (review it in the pull request)
         if: steps.auth.outcome == 'success'
-        run: bash infra/scripts/deploy.sh plan
+        run: |
+          bash infra/scripts/deploy.sh plan
+          TF_ENV=dev bash infra/scripts/deploy.sh plan
 
   docker:
     name: Docker images
@@ -110,24 +130,71 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: The compose file is valid
         run: docker compose --profile airflow --profile serving config --quiet
-      - name: The dashboard image builds, imports, and is not root
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      # Layers are cached in GitHub Actions: unchanged requirements skip the install.
+      - name: Build the dashboard image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: Dockerfile.dashboard
+          pull: true
+          load: true
+          tags: ${{ env.DASHBOARD_IMAGE }}
+          build-args: UV_VERSION=${{ env.UV_VERSION }}
+          cache-from: type=gha,scope=dashboard
+          cache-to: type=gha,mode=max,scope=dashboard
+      - name: The dashboard image imports and is not root
         run: |
-          docker build --pull --build-arg UV_VERSION="$UV_VERSION" -f Dockerfile.dashboard -t "$DASHBOARD_IMAGE" .
           docker run --rm "$DASHBOARD_IMAGE" python -c "import streamlit, importlib; importlib.import_module('src.5_serving.eda')"
           test "$(docker run --rm "$DASHBOARD_IMAGE" id -u)" != "0"
-      - name: The Airflow image builds and the DAG loads
+      # The Airflow image is only built to test the DAG; nothing deploys it (the
+      # daily run is pipeline.yml), so it is not scanned or pushed.
+      - name: Build the Airflow image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: Dockerfile
+          pull: true
+          load: true
+          tags: ${{ env.AIRFLOW_IMAGE }}
+          build-args: UV_VERSION=${{ env.UV_VERSION }}
+          cache-from: type=gha,scope=airflow
+          cache-to: type=gha,mode=max,scope=airflow
+      - name: The DAG loads in the Airflow image
         run: |
-          docker build --pull --build-arg UV_VERSION="$UV_VERSION" -f Dockerfile -t "$AIRFLOW_IMAGE" .
           docker run --rm -v "$PWD/tests:/opt/airflow/tests:ro" --entrypoint bash "$AIRFLOW_IMAGE" -c \
             "pip install --quiet pytest && python -m pytest -q -p no:cacheprovider -o addopts='' /opt/airflow/tests/test_dag_integrity.py"
-      # On main, hand the tested Airflow image to CD; CD never rebuilds.
-      - name: Save the Airflow image for CD
+      # The dashboard runs on Cloud Run: fail on critical vulnerabilities that have a fix.
+      - name: Scan the dashboard image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.DASHBOARD_IMAGE }}
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+      # On main, hand the tested dashboard image to CD; CD never rebuilds.
+      - name: Save the dashboard image for CD
         if: github.event_name == 'push'
-        run: docker save "$AIRFLOW_IMAGE" | gzip > airflow-image.tar.gz
+        run: docker save "$DASHBOARD_IMAGE" | gzip > images.tar.gz
       - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         if: github.event_name == 'push'
         with:
-          name: airflow-image
-          path: airflow-image.tar.gz
+          name: images
+          path: images.tar.gz
           retention-days: 1
           compression-level: 0 # already gzip
+
+  notify:
+    name: Tell Discord that CI failed on main
+    needs: [pre-commit, test, terraform, docker]
+    if: failure() && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    env:
+      ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
+    steps:
+      - name: Post the message
+        if: env.ALERT_WEBHOOK_URL != ''
+        run: |
+          URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          jq -n --arg c ":x: **CI** failed on main ($GITHUB_SHA): $URL" '{content: $c}' \
+            | curl -sS -X POST -H "Content-Type: application/json" -d @- "$ALERT_WEBHOOK_URL" > /dev/null

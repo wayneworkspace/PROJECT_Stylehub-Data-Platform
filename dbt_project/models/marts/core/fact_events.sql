@@ -1,15 +1,9 @@
--- One row per event (~108M). Events are loaded once, so tag events keeps it
--- out of daily runs; after a new events load: dbt build --select tag:events
+-- One row per event (~108M). A view: the rows already sit once in the
+-- partitioned Bronze table, so a 13.5 GB copy here would only cost storage.
+-- Tag events keeps it out of daily runs, so its tests do not scan 108M rows a day;
+-- after a new events load: dbt build --select tag:events
 
-{{ config(
-    tags=['events'],
-    materialized='incremental',
-    incremental_strategy='insert_overwrite',
-    partition_by={'field': 'event_date', 'data_type': 'date'},
-    cluster_by=['event_type', 'product_id']
-) }}
-
-{% set lookback_days = var('events_lookback_days', 3) %}
+{{ config(tags=['events'], materialized='view') }}
 
 SELECT
   event_id,
@@ -23,9 +17,3 @@ SELECT
   event_time,
   DATE(event_time) AS event_date
 FROM {{ ref('stg_stylehub__events') }}
-{% if is_incremental() %}
--- _dbt_max_partition: newest event_date here; an empty table reads everything.
-  WHERE
-    DATE(event_time)
-    >= DATE_SUB(COALESCE(_dbt_max_partition, DATE '1970-01-01'), INTERVAL {{ lookback_days }} DAY)
-{% endif %}

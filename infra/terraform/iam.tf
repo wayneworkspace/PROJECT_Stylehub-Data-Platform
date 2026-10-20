@@ -37,6 +37,11 @@ locals {
   project_roles = {
     "pipeline-job-user"  = { role = "roles/bigquery.jobUser", sa = "sa-pipeline" }
     "dashboard-job-user" = { role = "roles/bigquery.jobUser", sa = "sa-dashboard" }
+    # to_dataframe() reads through the BigQuery Storage API, which needs read sessions.
+    "pipeline-read-sessions"  = { role = "roles/bigquery.readSessionUser", sa = "sa-pipeline" }
+    "dashboard-read-sessions" = { role = "roles/bigquery.readSessionUser", sa = "sa-dashboard" }
+    # CD puts the tested image on the Cloud Run dashboard.
+    "cd-run-developer" = { role = "roles/run.developer", sa = "sa-github-cd" }
     # Plan reads metadata and IAM policies only, never table rows or files.
     "plan-iam-reader"   = { role = "roles/iam.securityReviewer", sa = "sa-terraform-plan" }
     "plan-apis"         = { role = "roles/serviceusage.serviceUsageViewer", sa = "sa-terraform-plan" }
@@ -47,8 +52,7 @@ locals {
     "plan-registry"     = { role = "roles/artifactregistry.reader", sa = "sa-terraform-plan" }
     "plan-log-metrics"  = { role = "roles/logging.viewer", sa = "sa-terraform-plan" }
     "plan-alerts"       = { role = "roles/monitoring.alertPolicyViewer", sa = "sa-terraform-plan" }
-    "plan-secrets"      = { role = "roles/secretmanager.viewer", sa = "sa-terraform-plan" }
-    "plan-compute"      = { role = "roles/compute.viewer", sa = "sa-terraform-plan" }
+    "plan-run"          = { role = "roles/run.viewer", sa = "sa-terraform-plan" }
     "apply-storage"     = { role = "roles/storage.admin", sa = "sa-terraform-apply" }
     "apply-bigquery"    = { role = "roles/bigquery.admin", sa = "sa-terraform-apply" }
     "apply-registry"    = { role = "roles/artifactregistry.admin", sa = "sa-terraform-apply" }
@@ -58,9 +62,7 @@ locals {
     "apply-apis"        = { role = "roles/serviceusage.serviceUsageAdmin", sa = "sa-terraform-apply" }
     "apply-log-metrics" = { role = "roles/logging.configWriter", sa = "sa-terraform-apply" }
     "apply-alerts"      = { role = "roles/monitoring.alertPolicyEditor", sa = "sa-terraform-apply" }
-    "apply-secrets"     = { role = "roles/secretmanager.admin", sa = "sa-terraform-apply" }
-    "apply-compute"     = { role = "roles/compute.instanceAdmin.v1", sa = "sa-terraform-apply" }
-    "apply-firewall"    = { role = "roles/compute.securityAdmin", sa = "sa-terraform-apply" }
+    "apply-run"         = { role = "roles/run.admin", sa = "sa-terraform-apply" }
   }
 }
 
@@ -69,13 +71,6 @@ resource "google_project_iam_member" "this" {
   project  = var.project_id
   role     = each.value.role
   member   = local.sa[each.value.sa]
-}
-
-resource "google_bigquery_dataset_iam_member" "this" {
-  for_each   = local.dataset_access
-  dataset_id = google_bigquery_dataset.this[each.value.dataset].dataset_id
-  role       = each.value.role
-  member     = local.sa[each.value.sa]
 }
 
 # Raw Zone: the pipeline may add and read files, never overwrite or delete.
@@ -108,9 +103,19 @@ resource "google_artifact_registry_repository_iam_member" "runtime_reads" {
   member     = local.sa[each.value]
 }
 
-# Apply may attach sa-pipeline to the Airflow VM, and no other account.
-resource "google_service_account_iam_member" "apply_uses_pipeline" {
-  service_account_id = google_service_account.this["sa-pipeline"].name
+# The dashboard runs as sa-dashboard: apply creates the service, CD deploys revisions.
+resource "google_service_account_iam_member" "uses_dashboard" {
+  for_each           = toset(["sa-terraform-apply", "sa-github-cd"])
+  service_account_id = google_service_account.this["sa-dashboard"].name
   role               = "roles/iam.serviceAccountUser"
-  member             = local.sa["sa-terraform-apply"]
+  member             = local.sa[each.value]
+}
+
+# Developers act as sa-pipeline from a laptop instead of holding a key file:
+#   gcloud auth application-default login --impersonate-service-account=<sa-pipeline e-mail>
+resource "google_service_account_iam_member" "developers_impersonate_pipeline" {
+  for_each           = toset(var.developer_members)
+  service_account_id = google_service_account.this["sa-pipeline"].name
+  role               = "roles/iam.serviceAccountTokenCreator"
+  member             = each.value
 }

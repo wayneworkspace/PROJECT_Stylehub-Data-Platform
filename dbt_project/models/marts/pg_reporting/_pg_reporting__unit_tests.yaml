@@ -1,0 +1,24 @@
+version: 2
+
+# Gold rule checks on made-up rows; Silver must exist first.
+unit_tests:
+  - name: pg_daily_revenue_leaves_out_deleted_and_cancelled
+    description: >
+      An item deleted in Postgres is not revenue, and neither is a Cancelled one;
+      the order of a deleted item is not counted either.
+    model: pg_daily_revenue
+    config:
+      tags: ["pg_gold"]
+    # Pinned rule, so a changed project value does not break this.
+    overrides:
+      vars:
+        revenue_excluded_statuses: [Cancelled]
+    given:
+      - input: ref('pg_fact_order_items')
+        rows:
+          - {order_id: 1, status: Complete, amount: 10, is_deleted: false, order_date: "2026-10-01"}
+          - {order_id: 2, status: Complete, amount: 5, is_deleted: true, order_date: "2026-10-01"}
+          - {order_id: 3, status: Cancelled, amount: 7, is_deleted: false, order_date: "2026-10-01"}
+    expect:
+      rows:
+        - {order_date: "2026-10-01", n_orders: 1, revenue: 10}

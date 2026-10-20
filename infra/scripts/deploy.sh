@@ -1,6 +1,6 @@
 #!/bin/bash
 # Terraform plan or apply; colored console, plain copies in logs/infra/.
-# Usage: TF_STATE_BUCKET=<bucket> infra/scripts/deploy.sh plan|apply
+# Usage: TF_STATE_BUCKET=<bucket> [TF_ENV=dev] infra/scripts/deploy.sh plan|apply
 set -euo pipefail
 
 CYAN='\033[0;36m'
@@ -15,7 +15,9 @@ log_error() { echo -e "${RED}[ERROR] $(date +'%Y-%m-%d %H:%M:%S') - $1${NC}"; }
 log_debug() { echo -e "${CYAN}[DEBUG] $(date +'%Y-%m-%d %H:%M:%S') - $1${NC}"; }
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-TF_DIR="$ROOT/infra/terraform"
+# prod is the main root; other environments live in infra/terraform/envs/<name>.
+TF_ENV="${TF_ENV:-prod}"
+if [[ "$TF_ENV" == "prod" ]]; then TF_DIR="$ROOT/infra/terraform"; else TF_DIR="$ROOT/infra/terraform/envs/$TF_ENV"; fi
 LOG_DIR="$ROOT/logs/infra"
 STAMP="$(date +'%Y%m%d_%H%M%S')"
 ACTION="${1:-plan}"
@@ -25,7 +27,7 @@ mkdir -p "$LOG_DIR"
 
 strip_colors() { sed -r 's/\x1b\[[0-9;]*m//g'; }
 
-log_info "terraform init (state bucket $TF_STATE_BUCKET)"
+log_info "terraform init ($TF_ENV, state bucket $TF_STATE_BUCKET)"
 terraform -chdir="$TF_DIR" init -input=false -backend-config="bucket=$TF_STATE_BUCKET" \
     | tee >(strip_colors > "$LOG_DIR/init_$STAMP.log")
 

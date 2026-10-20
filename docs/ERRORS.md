@@ -30,7 +30,7 @@ Each row: the message you see, why it happens, and the fix. Commands run from th
 | Error message | Cause | Fix |
 |---|---|---|
 | `airflow-init didn't complete successfully` + `No module named 'config'` | Logging config path not on `sys.path` | Keep `PYTHONPATH: /opt/airflow` in `docker-compose.yaml` |
-| `ModuleNotFoundError: No module named 'colorlog'` in a task | `requirements.txt` older than `uv.lock` | `uv export --frozen --no-hashes --no-dev --extra dbt --no-emit-project -o requirements.txt`, rebuild |
+| `ModuleNotFoundError: No module named 'colorlog'` in a task | The image is older than `uv.lock` | Rebuild the image: `docker compose --env-file secrets/.env --profile airflow build` |
 | `No module named 'pendulum'` before each task | Pipeline venv has no pendulum; harmless | Ignore; the task still runs |
 | `set AIRFLOW_..._PASSWORD in secrets/.env` | An Airflow secret is empty | Fill the four `AIRFLOW_` values from `.env.example` |
 | `ports are not available` | Port 8080 or 8501 already used | Set `AIRFLOW_WEB_PORT=8081` in `secrets/.env` |
@@ -48,7 +48,6 @@ Each row: the message you see, why it happens, and the fix. Commands run from th
 | `dbt found 1 package(s) specified in packages.yml, but only 0 package(s) installed` | `dbt deps` was not run | `uv run dbt deps --project-dir dbt_project --profiles-dir dbt_project` (the image and CI run it) |
 | `relationships_pg_dim_users_country__country__ref_country_regions_` WARN | A new country appeared | Add it to `dbt_project/seeds/country_regions.csv` |
 | `log-path config in dbt_project.yml has been deprecated` | dbt 1.12 wants a CLI flag | Pass `--log-path logs/dbt`; never set it in the YAML |
-| `requirements.txt matches uv.lock` step fails | A dependency changed without export | Run the `uv export` command above and commit |
 | `Required test coverage of 100.0% not reached` | New code without a test | Add a test with the fakes in `tests/test_stages.py` |
 | Coverage misses files that were never imported | Namespace packages (no `__init__.py`) | Keep `include_namespace_packages = true` in `pyproject.toml` |
 | `TypeError: DagBag.__init__() got an unexpected keyword argument 'include_examples'` | Airflow 3 removed the argument | Call `DagBag(dag_folder)` only |
@@ -66,19 +65,17 @@ Each row: the message you see, why it happens, and the fix. Commands run from th
 | `Cloud Resource Manager API has not been used` | API is off in the project | First apply enables it; or `gcloud services enable cloudresourcemanager.googleapis.com` |
 | `Error acquiring the state lock` | Another plan or apply is running | Wait; `terraform force-unlock <id>` only if it crashed |
 | `Failed to get existing workspaces: bucket doesn't exist` | State bucket not created | `gcloud storage buckets create gs://<state-bucket> --location=asia-southeast1` |
-| VM starts but Airflow is missing | The startup script failed | `sudo journalctl -u google-startup-scripts` on the VM; usually the secret has no version yet |
-| `Permission denied on secret stylehub-dotenv` on the VM | Secret IAM not applied yet | Merge and let CD apply; the VM uses `sa-pipeline` |
+| `api_users: rows still differ from meta.count after 3 reads` | Many users changed during the read, so the pages kept shifting | Rerun `api_ingest`; it writes a new batch |
+| `401` from `/auth/token` or the API | `STYLEHUB_API_KEY` wrong or older than 90 days | Make a new key on the docs site (Create API Key), then update `secrets/.env` and the GitHub secret `STYLEHUB_API_KEY` |
+| `STYLEHUB_API_KEY is not set` | No API key in the environment | Add it to `secrets/.env` and the GitHub secret `STYLEHUB_API_KEY` |
+| Pipeline run does not start at 02:00 | GitHub disabled the schedule after 60 days without a commit | Actions > Pipeline > Enable workflow |
+| `403 ... bigquery.readsessions.create` in a Pipeline run | IAM change not applied yet | Merge and let CD apply; `sa-pipeline` gets `roles/bigquery.readSessionUser` |
 | CI plan step skipped | `WIF_PLAN_SERVICE_ACCOUNT` variable not set | Set the variables from `terraform output github_variables` |
 
 ## Products API
 
 | Error message | Cause | Fix |
 |---|---|---|
-| `api_ready` stays in `up_for_reschedule`, then fails | The API is down or blocked | Check `curl https://dummyjson.com/products?limit=1`; the sensor gives up after 10 minutes |
-| `HTTPError 429` / `503` in `fetch_page`, then success | Rate limit or server trouble; retried with backoff | None; lower `AIRFLOW_VAR_STYLEHUB_API_PAGE_SIZE` or the `api_pool` slots if it repeats |
-| `SchemaError: api_products: the API stopped sending: ...` | The API changed its fields | Update `COLUMNS` in `src/2_ingestion/api_products.py` and the dbt models |
-| `conn_id stylehub_api isn't defined` | Connection variable missing in the container | Keep `AIRFLOW_CONN_STYLEHUB_API` in `docker-compose.yaml`, then `up -d` |
-| Tasks stay `scheduled` with `Not scheduling since there are 0 open slots in pool api_pool` | Pool missing or full | `airflow pools set api_pool 2 "..."` (done by `airflow-init`) |
 | `dags trigger` fails with a duplicate logical date | Unpausing already created that run | Use the scheduled run, or another logical date |
 
 ## Alerts

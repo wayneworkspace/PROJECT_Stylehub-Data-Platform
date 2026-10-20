@@ -1,17 +1,23 @@
 """Pipeline stages against fake GCS, BigQuery, Postgres and dbt; no cloud needed."""
 
+import ast
 import io
 import logging
 import os
 import sys
 from datetime import datetime
+from decimal import Decimal
 from importlib import import_module
 from types import SimpleNamespace as NS
 from typing import ClassVar
 
 import pandas as pd
+import pyarrow.parquet as pq
 import pytest
+import requests
+import yaml
 from google.api_core import exceptions
+from pydantic import SecretStr
 
 config = import_module("src.1_source.config")
 bq = import_module("src.1_source.bq")
@@ -26,6 +32,8 @@ load_bronze = import_module("src.3_storage.load_bronze")
 runs = import_module("src.3_storage.runs")
 run_dbt = import_module("src.4_transform.run_dbt")
 run_daily = import_module("src.4_transform.run_daily")
+api = import_module("src.1_source.api")
+api_users = import_module("src.2_ingestion.api_users")
 
 
 @pytest.fixture
@@ -134,7 +142,7 @@ class FakeGCS:
         return NS(name=name, blob=blob)
 
     def list_blobs(self, bucket: str, prefix: str, delimiter: str | None = None) -> Listing:
-        listing = Listing(() if delimiter else self.blobs)
+        listing = Listing(b for b in self.blobs if b.name.startswith(prefix))
         listing.prefixes = self.folders
         return listing
 
@@ -262,7 +270,7 @@ def test_csv_ingest_writes_raw(cfg, monkeypatch) -> None:
     with pytest.raises(ValueError, match="No CSV table"):
         csv_tables.extract_full("events", cfg)
     client.tables["proj.stylehub.orders"] = csv_source(5)
-    with pytest.raises(csv_tables.SourceRowMismatch):
+    with pytest.raises(schema_check.SourceRowMismatch):
         csv_tables.extract_full("orders", cfg)
 
 
@@ -292,25 +300,200 @@ def test_postgres_incremental_ingest(cfg, monkeypatch) -> None:
     bronze = "proj.stylehub_bronze.pg_orders"
     client, gcs = FakeBQ({bronze: NS()}), FakeGCS()
     client.query_rows = [(datetime.fromisoformat("2026-10-14T23:00"),)]
+    schema = pg_tables.arrow_schema("orders", [("id", "bigint"), ("total_amount", "numeric")])
     monkeypatch.setattr(config, "bq_client", lambda cfg: client)
     monkeypatch.setattr(config, "gcs_client", lambda cfg: gcs)
-    monkeypatch.setattr(config, "pg_engine", lambda cfg: FakePg(2))
-    monkeypatch.setattr(pg_tables, "check_schema", lambda table, cfg: None)  # tested below
-    monkeypatch.setattr(pg_tables.pd, "read_sql", lambda *a, **k: pd.DataFrame({"id": [1, 2]}))
-    assert pg_tables.ingest_table("orders", "2026-10-15", cfg) == 2
+    monkeypatch.setattr(config, "pg_engine", lambda cfg: FakePg(3))
+    monkeypatch.setattr(pg_tables, "check_schema", lambda table, cfg: schema)  # tested below
+    chunks = [
+        pd.DataFrame({"id": [1, 2], "total_amount": [None, None]}),  # all NULL in this chunk
+        pd.DataFrame({"id": [3], "total_amount": [Decimal("9.50")]}),
+    ]
+    asked: dict = {}
+
+    def read_sql(*args: object, **kwargs: object) -> list[pd.DataFrame]:
+        asked.update(kwargs)
+        return chunks
+
+    monkeypatch.setattr(pg_tables.pd, "read_sql", read_sql)
+    assert pg_tables.ingest_table("orders", "2026-10-15", cfg) == 3
+    assert asked["chunksize"] == pg_tables.CHUNK_ROWS
     assert "_PARTITIONDATE < DATE '2026-10-15'" in client.calls[0][1]
-    assert next(iter(gcs.uploaded)).startswith("raw/stylehub/pg_orders/date=2026-10-15/")
+    files = sorted(gcs.uploaded)
+    assert [p.rsplit("/", 1)[1] for p in files] == [
+        "_SUCCESS",
+        "part_00000.parquet",
+        "part_00001.parquet",
+    ]
+    assert files[0].startswith("raw/stylehub/pg_orders/date=2026-10-15/batch_id=")
+    paths = files[1:]
+    # Every part has the same types, even a column that is NULL in one chunk.
+    types = {
+        str(pq.read_schema(io.BytesIO(gcs.uploaded[p].data)).field("total_amount").type)
+        for p in paths
+    }
+    assert types == {"decimal128(38, 9)"}
 
     monkeypatch.setattr(config, "pg_engine", lambda cfg: FakePg(0))
-    monkeypatch.setattr(pg_tables.pd, "read_sql", lambda *a, **k: pd.DataFrame({"id": []}))
+    chunks = [pd.DataFrame({"id": []})]  # pandas yields one empty chunk when nothing matched
     client.tables.clear()  # first run: no Bronze table, full load
+    gcs.uploaded.clear()
     assert pg_tables.ingest_table("orders", "2026-10-15", cfg) == 0
+    assert not gcs.uploaded
 
+    # Fewer rows than the source count: the part stays, but without _SUCCESS Bronze skips it.
     monkeypatch.setattr(config, "pg_engine", lambda cfg: FakePg(9))
-    with pytest.raises(pg_tables.SourceRowMismatch):
-        pg_tables.extract("orders", None, datetime.fromisoformat("2026-10-16"), cfg)
+    chunks = [pd.DataFrame({"id": [1], "total_amount": [None]})]
+    end = datetime.fromisoformat("2026-10-16")
+    with pytest.raises(schema_check.SourceRowMismatch):
+        pg_tables.extract_to_raw("orders", None, end, schema, "2026-10-15", cfg)
+    assert list(gcs.uploaded) and not any(p.endswith("_SUCCESS") for p in gcs.uploaded)
     with pytest.raises(ValueError, match="No Postgres table"):
-        pg_tables.extract("events", None, datetime.fromisoformat("2026-10-16"), cfg)
+        pg_tables.extract_to_raw("events", None, end, schema, "2026-10-15", cfg)
+    with pytest.raises(schema_check.SchemaError, match="jsonb"):
+        pg_tables.arrow_schema("orders", [("id", "bigint"), ("meta", "jsonb")])
+    # BigQuery loads nanosecond Parquet timestamps as INTEGER; microseconds as TIMESTAMP.
+    stamp = pg_tables.arrow_schema("orders", [("t", "timestamp without time zone")])
+    assert stamp.field("t").type.unit == "us"
+
+
+def api_user(i: int, **changes: object) -> dict:
+    row = {name: f"{name}{i}" for name in api_users.SCHEMA.names}
+    row |= {"id": i, "age": 30, "latitude": 10.7769, "longitude": 106.7009}
+    row |= {"created_at": "2025-01-01T09:52:01.396420", "updated_at": "2026-10-19T14:44:40.021670"}
+    return row | changes
+
+
+class FakeApi:
+    """Answers like the StyleHub REST API: a JWT, then pages of 2 rows ordered by id."""
+
+    def __init__(
+        self, pages: list[list[dict]], counts: list[int] | None = None, fail: int = 0
+    ) -> None:
+        self.reads = iter(zip(pages, counts or [None] * len(pages), strict=True))
+        self.fail = fail
+        self.headers: dict = {}
+        self.calls: list[tuple] = []
+        self.rows: list[dict] = []
+        self.count: int | None = None
+
+    def __enter__(self) -> "FakeApi":
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        pass
+
+    def post(self, url: str, json: dict, timeout: int) -> NS:
+        self.calls.append(("token", json["api_key"]))
+        return NS(raise_for_status=lambda: None, json=lambda: {"access_token": "jwt"})
+
+    def get(self, url: str, params: dict, timeout: int) -> NS:
+        self.calls.append((url.rsplit("/", 1)[1], dict(params)))
+        if self.fail:  # a busy server first
+            self.fail -= 1
+            return NS(raise_for_status=FakeApi.raise_status(503))
+        if params["page"] == 0:  # a new read of the window
+            self.rows, count = next(self.reads)
+            self.count = len(self.rows) if count is None else count
+        start = params["page"] * 2
+        meta = {"count": self.count, "has_more": start + 2 < len(self.rows)}
+        page = self.rows[start : start + 2]
+        return NS(raise_for_status=lambda: None, json=lambda: {"meta": meta, "data": page})
+
+    @staticmethod
+    def raise_status(code: int):
+        def raise_it() -> None:
+            raise requests.HTTPError(response=NS(status_code=code))
+
+        return raise_it
+
+
+def retry_once(func):
+    """Like call_with_retry, without the wait: one retry of a transient error."""
+    try:
+        return func()
+    except Exception as exc:
+        if not retry.is_transient(exc):
+            raise
+        return func()
+
+
+def test_api_users_incremental(cfg, monkeypatch) -> None:
+    gcs = FakeGCS()
+    monkeypatch.setattr(config, "gcs_client", lambda cfg: gcs)
+    monkeypatch.setattr(api.retry, "call_with_retry", retry_once)
+    watermark = {"value": None}  # no Bronze table yet: first, full load
+    monkeypatch.setattr(api_users.bq, "newest_before", lambda *a: watermark["value"])
+    cfg = cfg.model_copy(update={"stylehub_api_key": SecretStr("sk_test")})
+    fake = FakeApi([[api_user(i) for i in range(1, 6)]], fail=1)
+    monkeypatch.setattr(api.requests, "Session", lambda: fake)
+
+    assert api_users.ingest("2026-10-19", cfg) == 5
+    assert fake.calls[0] == ("token", "sk_test")
+    assert fake.headers["Authorization"] == "Bearer jwt"
+    reads = [p for name, p in fake.calls if name == "users"]
+    assert [p["page"] for p in reads] == [0, 0, 1, 2]  # 503 retried, then page 0 to has_more false
+    assert reads[0] == {
+        "updated_from": "2025-01-01",
+        "updated_to": "2026-10-19",
+        "page": 0,
+        "page_size": 10_000,
+    }
+    ((path, blob),) = gcs.uploaded.items()
+    assert path.startswith("raw/stylehub/api_users/date=2026-10-19/batch_id=")
+    table = pq.read_table(io.BytesIO(blob.data))
+    assert str(table.schema.field("updated_at").type) == "timestamp[us]"  # BigQuery TIMESTAMP
+    assert table.column("_source")[0].as_py() == "api"
+
+    # Next day: watermark minus one day; a user updated during the read shifts the
+    # pages (one row read twice), so the window is read again.
+    watermark["value"] = datetime.fromisoformat("2026-10-19T14:44:40")
+    shifted = [api_user(1), api_user(2), api_user(2)]
+    fake = FakeApi([shifted, [api_user(1), api_user(2)]], counts=[3, 2])
+    monkeypatch.setattr(api.requests, "Session", lambda: fake)
+    gcs.uploaded.clear()
+    assert api_users.ingest("2026-10-20", cfg) == 2
+    reads = [p for name, p in fake.calls if name == "users"]
+    assert reads[0]["updated_from"] == "2026-10-18"
+    assert len(gcs.uploaded) == 1
+
+    # Still wrong after every attempt: stop; nothing changed: no file.
+    monkeypatch.setattr(api_users, "READ_ATTEMPTS", 1)
+    fake = FakeApi([[api_user(1)]], counts=[9])
+    monkeypatch.setattr(api.requests, "Session", lambda: fake)
+    with pytest.raises(schema_check.SourceRowMismatch, match="after 1 reads"):
+        api_users.ingest("2026-10-20", cfg)
+    monkeypatch.setattr(api.requests, "Session", lambda: FakeApi([[]]))
+    gcs.uploaded.clear()
+    assert api_users.ingest("2026-10-20", cfg) == 0
+    assert not gcs.uploaded
+
+    # has_more that never ends; no key.
+    monkeypatch.setattr(api_users, "MAX_PAGES", 1)
+    monkeypatch.setattr(api.requests, "Session", lambda: FakeApi([[api_user(i) for i in range(3)]]))
+    with pytest.raises(RuntimeError, match="still has_more"):
+        api_users.ingest("2026-10-20", cfg)
+    with pytest.raises(RuntimeError, match="STYLEHUB_API_KEY"):
+        api.open_session(cfg.model_copy(update={"stylehub_api_key": None}))
+
+
+def test_api_users_schema(caplog) -> None:
+    with pytest.raises(schema_check.SchemaError, match="stopped sending email"):
+        api_users.to_frame([{k: v for k, v in api_user(1).items() if k != "email"}])
+    df = api_users.to_frame([api_user(1, color="red")])
+    assert list(df.columns) == api_users.SCHEMA.names
+    assert "new API fields, not loaded: color" in caplog.text
+
+
+def test_http_errors_retry_only_when_waiting_helps() -> None:
+    def error(code: int) -> requests.HTTPError:
+        return requests.HTTPError(response=NS(status_code=code))
+
+    assert retry.is_transient(error(429))
+    assert retry.is_transient(error(503))
+    assert not retry.is_transient(error(400))
+    assert not retry.is_transient(error(401))
+    assert not retry.is_transient(requests.HTTPError())  # no response attached
 
 
 # 3_storage ------------------------------------------------------------------------------
@@ -332,7 +515,9 @@ def test_events_bronze_build(cfg, monkeypatch) -> None:
     client.query = fake_query
     events_bronze.main()
     assert ("delete", "proj.stylehub_bronze.events_raw") in client.calls
-    events_bronze.ensure_events_bronze(cfg)  # already there: nothing to do
+    client.calls.clear()
+    events_bronze.ensure_events_bronze(cfg)  # already there: only a leftover copy is deleted
+    assert client.calls == [("delete", "proj.stylehub_bronze.events_raw")]
 
     client.copy_fails_in = {"asia-southeast1", "US"}
     with pytest.raises(RuntimeError, match="either region"):
@@ -346,13 +531,19 @@ def test_events_table_exists(cfg, monkeypatch) -> None:
 
 def test_load_day_write_audit_publish(cfg, monkeypatch) -> None:
     prefix = "raw/stylehub/orders/date=2026-10-01/"
-    folders = {f"{prefix}batch_id=1/", f"{prefix}batch_id=2/"}
-    gcs = FakeGCS(folders, [FakeBlob("a.parquet", parquet(3))])
+    gcs = FakeGCS(
+        blobs=[
+            FakeBlob(f"{prefix}batch_id=1/orders.parquet", parquet(5)),
+            FakeBlob(f"{prefix}batch_id=2/orders.parquet", parquet(3)),  # newest, loaded
+            FakeBlob(f"{prefix}batch_id=3/part_00000.parquet", parquet(1)),  # unfinished
+        ]
+    )
     client = FakeBQ({"proj.stylehub_bronze._stg_orders": NS(schema=[])})
     client.loaded_rows = 3
     monkeypatch.setattr(config, "gcs_client", lambda cfg: gcs)
     monkeypatch.setattr(config, "bq_client", lambda cfg: client)
     assert load_bronze.load_day("orders", "2026-10-01", cfg, keep_days=None) == 3
+    assert ("load", f"gs://bucket/{prefix}batch_id=2/*.parquet") in client.calls
     assert ("create", "orders", None) in client.calls
     assert ("copy", "proj.stylehub_bronze.orders$20261001", "asia-southeast1") in client.calls
 
@@ -429,6 +620,7 @@ def test_run_daily_runs_every_step(cfg, monkeypatch) -> None:
     monkeypatch.setattr(run_daily.runs, "record_run", lambda *a: recorded.append((a[1], a[3])))
     monkeypatch.setattr(run_daily.csv_tables, "ingest_table", lambda t, d, c: 1)
     monkeypatch.setattr(run_daily.pg_tables, "ingest_table", lambda t, d, c: 2)
+    monkeypatch.setattr(run_daily.api_users, "ingest", lambda d, c: 4)
     monkeypatch.setattr(run_daily.events_bronze, "events_table_exists", lambda c: True)
     monkeypatch.setattr(run_daily.load_bronze, "load_day", lambda *a, **k: 3)
     monkeypatch.setattr(run_daily.run_dbt, "run_dbt", lambda layer: {"layer": layer})
@@ -449,16 +641,39 @@ def test_run_daily_records_failures(cfg, monkeypatch) -> None:
     monkeypatch.setattr(run_daily.load_bronze, "load_day", lambda *a, **k: 0)
     with pytest.raises(RuntimeError, match="no Raw file"):
         run_daily.run_step("2026-10-01", "bronze", "run-3")
-    with pytest.raises(RuntimeError, match="api_bronze: no Raw file"):
-        run_daily.run_step("2026-10-01", "api_bronze", "run-4")
-    assert [(r[0], r[2]) for r in recorded] == [
-        ("bronze", "failed"),
-        ("bronze", "failed"),
-        ("api_bronze", "failed"),
-    ]
+    assert [(r[0], r[2]) for r in recorded] == [("bronze", "failed"), ("bronze", "failed")]
 
 
 # dags -----------------------------------------------------------------------------------
+
+
+def test_command_lines_pass_their_arguments(monkeypatch) -> None:
+    freshness = import_module("src.5_serving.freshness")
+    calls: list[tuple] = []
+    monkeypatch.setattr(run_daily, "run_step", lambda *a: calls.append(("step", *a)))
+    monkeypatch.setattr(freshness, "check", lambda *a: calls.append(("fresh", *a)))
+    run_daily.main(["2026-10-01", "ingest", "gha-1"])
+    monkeypatch.setattr(sys, "argv", ["freshness", "2026-10-01", "gha-1"])
+    freshness.main()  # reads sys.argv like `python -m`
+    assert calls == [("step", "2026-10-01", "ingest", "gha-1"), ("fresh", "2026-10-01", "gha-1")]
+
+
+def test_scheduled_workflow_runs_the_dag_steps() -> None:
+    """pipeline.yml must run the same steps, in the same order, as the Airflow DAG."""
+    tree = ast.parse((config.ROOT / "dags" / "main_etl_dag.py").read_text(encoding="utf-8"))
+    dag = {
+        node.targets[0].id: ast.literal_eval(node.value)
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        and isinstance(node.targets[0], ast.Name)
+        and node.targets[0].id
+        in {"CSV_STEPS", "PG_STEPS", "API_STEPS", "PG_ENABLED", "API_ENABLED"}
+    }
+    workflow = yaml.safe_load((config.ROOT / ".github/workflows/pipeline.yml").read_text())
+    assert workflow["env"]["CSV_STEPS"].split() == dag["CSV_STEPS"]
+    assert workflow["env"]["PG_STEPS"].split() == (dag["PG_STEPS"] if dag["PG_ENABLED"] else [])
+    assert workflow["env"]["API_STEPS"].split() == (dag["API_STEPS"] if dag["API_ENABLED"] else [])
+    assert set(dag["CSV_STEPS"] + dag["PG_STEPS"] + dag["API_STEPS"]) <= set(run_daily.STEPS)
 
 
 def test_run_python_step_calls_run_daily(monkeypatch) -> None:
@@ -555,68 +770,6 @@ def test_freshness_check_records_and_alerts(cfg, monkeypatch) -> None:
     assert recorded[-1][3] == "failed" and "users (40 h)" in sent[0]
 
 
-def product(pid: int, brand: str | None = "Acme") -> dict:
-    """One product as the API returns it with our select list."""
-    item = {
-        "id": pid,
-        "title": f"P{pid}",
-        "category": "beauty",
-        "price": 9.99,
-        "discountPercentage": 10.0,
-        "rating": 4.5,
-        "stock": 3,
-        "availabilityStatus": "In Stock",
-        "meta": {"updatedAt": "2026-05-23T11:27:41.868Z"},
-    }
-    if brand:
-        item["brand"] = brand
-    return item
-
-
-def test_api_get_page_and_http_retry_rule(monkeypatch) -> None:
-    api = import_module("src.1_source.api")
-    asked: list[tuple] = []
-
-    class Session:
-        def get(self, url: str, params: dict, timeout: int) -> NS:
-            asked.append((url, params["skip"], params["limit"]))
-            return NS(raise_for_status=lambda: None, json=lambda: {"products": []})
-
-    assert api.get_page(Session(), "https://api.test/", 50, 50) == {"products": []}
-    assert asked == [("https://api.test/products", 50, 50)]
-
-    def http_error(code: int) -> Exception:
-        return retry.requests.HTTPError(response=NS(status_code=code))
-
-    assert retry.is_transient(http_error(429)) and retry.is_transient(http_error(503))
-    assert not retry.is_transient(http_error(404))
-
-
-def test_api_products_frame_and_page_ingest(cfg, monkeypatch) -> None:
-    api_products = import_module("src.2_ingestion.api_products")
-    df = api_products.to_frame([product(1), product(2, brand=None)])
-    assert list(df["brand"].isna()) == [False, True]
-    assert str(df["stock"].dtype) == "Int64" and str(df["updated_at"].dt.tz) == "UTC"
-    broken = product(3)
-    del broken["price"]
-    with pytest.raises(schema_check.SchemaError, match="price"):
-        api_products.to_frame([broken])
-
-    gcs = FakeGCS()
-    monkeypatch.setattr(api_products.config, "settings", lambda: cfg)
-    monkeypatch.setattr(config, "gcs_client", lambda cfg: gcs)
-    pages = {0: [product(1), product(2)], 50: []}
-    monkeypatch.setattr(
-        api_products.api, "get_page", lambda s, url, skip, limit: {"products": pages[skip]}
-    )
-    page = {"base_url": "https://api.test", "skip": 0, "limit": 50, "batch_id": "b1"}
-    assert api_products.ingest_page(page, "2026-10-17") == 2
-    assert list(gcs.uploaded) == [
-        "raw/stylehub/api_products/date=2026-10-17/batch_id=b1/part_000000.parquet"
-    ]
-    assert api_products.ingest_page(page | {"skip": 50}, "2026-10-17") == 0
-
-
 def test_reconcile_writes_the_deleted_ids(cfg, monkeypatch) -> None:
     reconcile = import_module("src.3_storage.reconcile")
     client = FakeBQ()
@@ -639,6 +792,15 @@ def test_reconcile_writes_the_deleted_ids(cfg, monkeypatch) -> None:
     assert sorted(frame["table_name"]) == sorted(pg_tables.PG_TABLES)
     assert set(frame["id"]) == {2}
 
+    # Next day: ids flagged before keep their first detected_at.
+    first_seen = pd.Timestamp("2026-10-01", tz="UTC")
+    client.tables[target] = NS()
+    flagged = pd.DataFrame({"table_name": ["orders"], "id": [2], "detected_at": [first_seen]})
+    client.list_rows = lambda table, selected_fields: NS(to_dataframe=lambda: flagged)
+    reconcile.reconcile(cfg)
+    frame = loaded[-1][1].set_index("table_name")["detected_at"]
+    assert frame["orders"] == first_seen and frame["users"] > first_seen
+
 
 def test_postgres_schema_check(cfg, monkeypatch) -> None:
     pg_types = {"int": "bigint", "number": "numeric", "text": "text"}
@@ -651,7 +813,10 @@ def test_postgres_schema_check(cfg, monkeypatch) -> None:
             return NS(all=lambda: columns)
 
     monkeypatch.setattr(config, "pg_engine", lambda cfg: Conn(0))
-    pg_tables.check_schema("orders", cfg)  # matches the sources file
+    schema = pg_tables.check_schema("orders", cfg)  # matches the sources file
+    assert schema.names == list(expected) and str(schema.field("total_amount").type) == (
+        "decimal128(38, 9)"
+    )
     columns[2] = (columns[2][0], "text")  # total_amount turned into text
     with pytest.raises(schema_check.SchemaError, match="type changes"):
         pg_tables.check_schema("orders", cfg)

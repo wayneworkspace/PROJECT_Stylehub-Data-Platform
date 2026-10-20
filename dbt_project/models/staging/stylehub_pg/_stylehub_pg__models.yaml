@@ -1,6 +1,6 @@
 version: 2
 
-# Newest version of each id.
+# Newest version of each id; is_deleted marks ids no longer in Postgres.
 # No unique test: QUALIFY ROW_NUMBER() = 1 keeps one row per key; marts test it.
 models:
   - name: stg_pg__orders

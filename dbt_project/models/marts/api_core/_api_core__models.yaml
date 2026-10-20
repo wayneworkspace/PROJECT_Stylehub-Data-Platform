@@ -1,15 +1,12 @@
 version: 2
 
 models:
-  - name: api_products
-    description: Product catalog from the products API, newest snapshot.
+  - name: api_users
+    description: Users from the StyleHub REST API, newest version of each.
     columns:
-      - name: product_id
+      - name: user_id
         data_tests: [unique, not_null]
-      - name: price
+      - name: email
         data_tests: [not_null]
-      - name: availability_status
-        data_tests:
-          - accepted_values:
-              arguments:
-                values: ["In Stock", "Low Stock", "Out of Stock"]
+      - name: updated_at
+        data_tests: [not_null]

@@ -22,8 +22,16 @@ resource "google_logging_metric" "bigquery_job_errors" {
   depends_on = [google_project_service.apis, google_project_iam_member.this]
 }
 
+# A new log metric takes a few minutes before an alert policy may use it;
+# without this wait the first apply fails with "Cannot find metric(s)".
+resource "time_sleep" "log_metric_ready" {
+  create_duration = "180s"
+  triggers        = { metric = google_logging_metric.bigquery_job_errors.id }
+}
+
 resource "google_monitoring_alert_policy" "bigquery_job_errors" {
   display_name = "StyleHub: pipeline BigQuery job failed"
+  depends_on   = [time_sleep.log_metric_ready]
   combiner     = "OR"
 
   conditions {

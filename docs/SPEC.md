@@ -5,11 +5,11 @@
 | Item | Specification |
 |---|---|
 | Purpose | Daily ELT turns StyleHub shop data into tested BigQuery tables |
-| Sources | Course BigQuery tables, read-only course Postgres database, products API (dummyjson.com) |
+| Sources | Course BigQuery tables, read-only course Postgres database (paused since 2026-10-20) |
 | Destination | GCS Raw Zone plus BigQuery Bronze, Silver, Gold datasets |
-| Schedule | `stylehub_daily` at 02:00 UTC, `stylehub_api` at 02:30 UTC |
+| Schedule | 02:00 UTC daily: `.github/workflows/pipeline.yml` (same steps as the Airflow DAG `stylehub_daily`); watchdog at 12:00 UTC |
 | Consumers | Analysts read Gold; Streamlit shows health and EDA |
-| Environment | Local Docker today; optional Airflow VM in Terraform (off); one GCP project, asia-southeast1 |
+| Environment | Daily run on GitHub Actions; local Docker for Airflow and the dashboard; dashboard on Cloud Run; one GCP project, asia-southeast1; about 0 USD |
 
 ## Pipeline stages
 
@@ -37,17 +37,6 @@
 | `pg_silver` | dbt keeps newest row per id without deleted ids, SCD2 product history, cost at sale | `pg_reconcile` |
 | `pg_gold` | dbt builds Buổi 5 tables, profit at sale cost, revenue by region, published monthly revenue, Gold-Silver check | `pg_silver` |
 | `freshness` | Fails and alerts when a Bronze table is older than 26 hours | `gold`, `pg_gold` |
-
-## DAG `stylehub_api`
-
-| Task | Airflow feature | Runs |
-|---|---|---|
-| `api_ready` | `HttpSensor`, reschedule mode | Waits until the API answers, up to 10 minutes |
-| `plan_pages` | TaskFlow `@task`, Connection `stylehub_api`, Variable `stylehub_api_page_size`, XCom | One page dict per 50 products, one shared `batch_id` |
-| `fetch_page` | `@task.external_python`, dynamic task mapping, pool `api_pool` (2 slots) | One Raw Parquet part per page |
-| `any_rows` | `@task.branch` | Goes to `api_bronze`, or `no_new_rows` when nothing came back |
-| `api_bronze` | ExternalPythonOperator | Write-audit-publish of the day's batch into `stylehub_bronze.api_products` |
-| `api_silver` | ExternalPythonOperator | dbt `tag:api_silver`: `stg_api__products`, `api_products` with `price_after_discount` |
 
 ## Data layers
 
@@ -113,7 +102,7 @@
 
 | Rule | Specification |
 |---|---|
-| Secrets | Git-ignored `secrets/.env` locally; Secret Manager `stylehub-dotenv` for the VM, value added by hand; `SecretStr` hides passwords |
+| Secrets | Git-ignored `secrets/.env` locally; GitHub secrets for the workflows; Workload Identity Federation instead of key files; `SecretStr` hides passwords |
 | Personal data | Names and addresses dropped; email hashed in dimensions |
 | GitHub login | Workload Identity Federation tokens, no JSON keys stored |
 | Apply rights | Terraform apply account usable only from `main` branch |
@@ -130,7 +119,7 @@
 | DAG integrity | pytest inside the Airflow image | DAG loads, task order checked |
 | dbt project | `dbt parse` without a warehouse connection | Must parse in CI |
 | Terraform | `fmt`, `validate`, `plan` on pull requests | Plan reviewed before apply |
-| Dependencies | `requirements.txt` regenerated from `uv.lock` | CI fails when they differ |
+| Dependencies | One lock file, `uv.lock`; the Airflow image exports it at build time | Nothing to keep in sync |
 
 ## Logging
 
@@ -140,6 +129,15 @@
 | Airflow | Task logs persist in `logs/airflow` through compose volume |
 | dbt | Colored screen output, JSON file per layer in `logs/dbt` |
 | Terraform | `deploy.sh` colors console, saves plain copies in `logs/infra` |
+
+## Infrastructure layout
+
+| Part | Path | Rule |
+|---|---|---|
+| Prod root | `infra/terraform/` | Applied by CD from `main`; state prefix `stylehub` |
+| Dev root | `infra/terraform/envs/dev/` | Applied by hand; `_dev` datasets; state prefix `stylehub-dev` |
+| Dataset module | `infra/terraform/modules/bigquery_dataset/` | Dataset plus dataset IAM, `prevent_destroy`; used by both roots |
+| State moves | `infra/terraform/moved.tf` | Renames state entries into the module; delete after one apply |
 
 ## Known limits
 

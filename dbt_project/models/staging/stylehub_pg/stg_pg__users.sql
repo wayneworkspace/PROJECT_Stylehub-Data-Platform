@@ -16,5 +16,7 @@ SELECT
   longitude,
   traffic_source,
   CAST(created_at AS TIMESTAMP) AS created_at,
-  CAST(updated_at AS TIMESTAMP) AS updated_at
+  CAST(updated_at AS TIMESTAMP) AS updated_at,
+  is_deleted,
+  deleted_at
 FROM latest

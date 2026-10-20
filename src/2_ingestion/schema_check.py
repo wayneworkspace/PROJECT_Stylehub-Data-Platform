@@ -29,6 +29,10 @@ def expected_schemas(source: str = "stylehub") -> dict[str, dict[str, str]]:
     return {t["name"]: {c["name"]: c["data_type"] for c in t.get("columns", [])} for t in tables}
 
 
+class SourceRowMismatch(RuntimeError):
+    """Rows read differ from the count the source reports for the same read."""
+
+
 class SchemaError(Exception):
     """Source columns no longer match the expected schema."""
 

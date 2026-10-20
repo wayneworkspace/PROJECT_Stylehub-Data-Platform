@@ -7,6 +7,7 @@ WITH orders AS (
   FROM {{ ref('pg_fact_orders') }} AS o
   LEFT JOIN {{ ref('pg_dim_users') }} AS u
     ON o.user_id = u.id
+  WHERE NOT o.is_deleted
 )
 
 SELECT

@@ -1,4 +1,5 @@
 -- One row per customer; email hashed (unsalted), exact location dropped.
+-- Customers deleted in Postgres stay (is_deleted) so old orders still join.
 
 SELECT
   id,
@@ -9,5 +10,7 @@ SELECT
   state,
   city,
   traffic_source,
-  created_at
+  created_at,
+  is_deleted,
+  deleted_at
 FROM {{ ref('stg_pg__users') }}

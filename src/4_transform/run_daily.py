@@ -1,5 +1,6 @@
 """Run one pipeline step for one date; record it in pipeline_runs."""
 
+import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import partial
@@ -10,6 +11,7 @@ get_logger = import_module("src.0_utils.logger").get_logger
 
 config = import_module("src.1_source.config")
 utils = import_module("src.1_source.utils")
+api_users = import_module("src.2_ingestion.api_users")
 csv_tables = import_module("src.2_ingestion.csv_tables")
 pg_tables = import_module("src.2_ingestion.postgres_tables")
 events_bronze = import_module("src.3_storage.events_bronze")
@@ -75,17 +77,21 @@ def step_pg_bronze(data_date: str, cfg: config.Settings) -> StepOutcome:
 
 
 def step_pg_reconcile(data_date: str, cfg: config.Settings) -> StepOutcome:
-    # Full id compare each day; Silver drops the deleted ids.
+    # Full id compare each day; Silver flags the deleted ids is_deleted.
     counts = reconcile.reconcile(cfg)
     return StepOutcome(sum(counts.values()), {"deleted_by_table": counts})
 
 
+def step_api_ingest(data_date: str, cfg: config.Settings) -> StepOutcome:
+    # Incremental load of the API users, watermark updated_at.
+    rows = api_users.ingest(data_date, cfg)
+    return StepOutcome(rows, {"rows_by_table": {api_users.TABLE: rows}})
+
+
 def step_api_bronze(data_date: str, cfg: config.Settings) -> StepOutcome:
-    # The API DAG runs this only after at least one page had rows.
-    rows = load_bronze.load_day("api_products", data_date, cfg)
-    if rows == 0:
-        raise RuntimeError(f"api_bronze: no Raw file for {data_date}; did fetch_page run?")
-    return StepOutcome(rows, {"rows_by_table": {"api_products": rows}})
+    # No Raw file means no changed users that day; partitions never expire.
+    rows = load_bronze.load_day(api_users.TABLE, data_date, cfg, keep_days=None)
+    return StepOutcome(rows, {"rows_by_table": {api_users.TABLE: rows}})
 
 
 def step_dbt(layer: str, data_date: str, cfg: config.Settings) -> StepOutcome:
@@ -104,7 +110,8 @@ STEPS = {
     "pg_reconcile": step_pg_reconcile,
     "pg_silver": partial(step_dbt, "pg_silver"),
     "pg_gold": partial(step_dbt, "pg_gold"),
-    "api_bronze": step_api_bronze,  # used by the stylehub_api DAG
+    "api_ingest": step_api_ingest,
+    "api_bronze": step_api_bronze,
     "api_silver": partial(step_dbt, "api_silver"),
 }
 
@@ -131,3 +138,13 @@ def run_step(data_date: str, step: str, run_id: str) -> None:
             run_id, step, data_date, status, started, finished, rows, error, detail, cfg
         )
     log.info("[run %s] step %s done in %.1fs", run_id, step, (finished - started).total_seconds())
+
+
+def main(argv: list[str] | None = None) -> None:
+    """Command line for the scheduled GitHub workflow: DATA_DATE STEP RUN_ID."""
+    data_date, step, run_id = sys.argv[1:] if argv is None else argv
+    run_step(data_date, step, run_id)
+
+
+if __name__ == "__main__":
+    main()

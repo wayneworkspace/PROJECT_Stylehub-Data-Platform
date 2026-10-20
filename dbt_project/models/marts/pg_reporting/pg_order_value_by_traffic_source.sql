@@ -7,7 +7,7 @@ WITH orders AS (
   FROM {{ ref('pg_fact_orders') }} AS o
   LEFT JOIN {{ ref('pg_dim_users') }} AS u
     ON o.user_id = u.id
-  WHERE {{ revenue_order_filter('o.status') }}
+  WHERE {{ pg_revenue_filter('o.status') }}
 )
 
 SELECT

@@ -55,6 +55,34 @@ def test_optimize_dtypes_memory_and_correlation() -> None:
     assert pd.isna(corr.loc["n", "f"])  # upper triangle is masked
 
 
+def test_missing_values_time_features_zscore_and_findings() -> None:
+    df = pd.DataFrame({"n": [1.0, None, 3.0], "t": ["a", None, "a"], "empty": [None, None, None]})
+    filled = eda.fill_missing(df, ["n", "t", "empty"])
+    assert list(filled["n"]) == [1.0, 2.0, 3.0] and list(filled["t"]) == ["a", "a", "a"]
+    assert list(filled["n_missing"]) == [False, True, False]
+    assert "empty_missing" not in filled  # nothing to learn a filler from
+
+    dated = eda.add_time_features(pd.DataFrame({"order_date": pd.to_datetime(["2026-05-02"])}))
+    assert dated[["year", "month", "quarter"]].iloc[0].tolist() == [2026, 5, 2]
+
+    spike = pd.DataFrame({"x": [1.0] * 30 + [100.0], "flat": [1.0] * 31})
+    z = eda.zscore_summary(spike, ["x", "flat"])
+    assert z.loc["x", "n_out"] == 1 and z.loc["flat", "n_out"] == 0
+
+    df = items().astype(dict.fromkeys(eda.NUMERIC_COLUMNS, "float64"))
+    lines = eda.findings(df, eda.outlier_summary(df, ["amount"]))
+    assert lines[0].startswith("Jeans brings the most revenue")
+    assert "right-skewed" in lines[1] and lines[-1] == "No missing values."
+    df.loc[0, "age"] = None
+    assert eda.findings(df, eda.outlier_summary(df, ["amount"]))[-1].endswith("age.")
+
+    # One item and no category: no correlation or category sentence, and no crash.
+    one = df.head(1).assign(category=None)
+    lines = eda.findings(one, eda.outlier_summary(one, ["amount"]))
+    assert not any(line.startswith(("Strongest", "None")) for line in lines)
+    assert "brings the most revenue" not in " ".join(lines)
+
+
 def test_reader_renders_sql_and_queries(monkeypatch) -> None:
     cfg = config.Settings(GCP_PROJECT_ID="proj", GCS_BUCKET="bucket")
     asked: list[str] = []
@@ -88,7 +116,7 @@ def test_eda_page_runs_every_section(fake_read) -> None:
     fake_read["03_eda_order_items.sql"] = items()
     app = AppTest.from_file(str(PAGES / "pages" / "1_EDA.py"), default_timeout=120).run()
     assert not app.exception
-    assert len(app.header) == 6
+    assert len(app.header) == 7
     assert app.caption[0].value == "40 rows, 14 columns"
 
 

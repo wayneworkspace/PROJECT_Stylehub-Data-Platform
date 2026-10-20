@@ -17,6 +17,11 @@ from utils_dag import (
 # Two branches; names match STEPS in run_daily.py.
 CSV_STEPS = ["ingest", "bronze", "silver", "gold"]
 PG_STEPS = ["pg_ingest", "pg_bronze", "pg_reconcile", "pg_silver", "pg_gold"]
+API_STEPS = ["api_ingest", "api_bronze", "api_silver"]
+PG_ENABLED = True
+API_ENABLED = True
+BRANCHES = [CSV_STEPS] + [PG_STEPS] * PG_ENABLED + [API_STEPS] * API_ENABLED
+STEPS = [step for branch in BRANCHES for step in branch]
 
 default_args = {
     "owner": "data-engineering",
@@ -34,6 +39,9 @@ with DAG(
     start_date=datetime(2026, 10, 1, tzinfo=UTC),
     # 02:00 UTC daily; the data interval keeps ds as yesterday.
     schedule=CronDataIntervalTimetable("0 2 * * *", timezone="UTC"),
+    # Production runs from .github/workflows/pipeline.yml at the same hour and on the
+    # same tables, so locally trigger this DAG by hand and never unpause it.
+    is_paused_upon_creation=True,
     catchup=False,  # old days are loaded on purpose with a backfill
     # Silver and Gold are rebuilt whole, so runs never overlap.
     max_active_runs=1,
@@ -58,13 +66,13 @@ with DAG(
             expect_airflow=False,
             expect_pendulum=False,
         )
-        for step in CSV_STEPS + PG_STEPS
+        for step in STEPS
     }
 
-    chain(*(tasks[step] for step in CSV_STEPS))  # ingest >> bronze >> silver >> gold
-    chain(*(tasks[step] for step in PG_STEPS))  # pg_ingest >> ... >> pg_gold
+    for branch in BRANCHES:  # ingest >> bronze >> silver >> gold, and so on
+        chain(*(tasks[step] for step in branch))
 
-    # After both branches: alert when a Bronze table was not loaded today.
+    # After every branch: alert when a Bronze table was not loaded today.
     freshness = ExternalPythonOperator(
         task_id="freshness",
         python=PIPELINE_PYTHON,
@@ -73,4 +81,4 @@ with DAG(
         expect_airflow=False,
         expect_pendulum=False,
     )
-    [tasks["gold"], tasks["pg_gold"]] >> freshness
+    [tasks[branch[-1]] for branch in BRANCHES] >> freshness

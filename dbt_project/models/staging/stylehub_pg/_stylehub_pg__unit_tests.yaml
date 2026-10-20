@@ -1,0 +1,26 @@
+version: 2
+
+# Soft delete on made-up rows: no row is deleted in Postgres yet, so these are the check.
+unit_tests:
+  - name: deleted_product_stays_flagged
+    description: >
+      Product 2 was deleted in Postgres: it stays, with is_deleted and the first day it was
+      seen missing. Product 1 keeps its newest version and is not flagged by a tombstone of
+      the same id in another table (orders).
+    model: stg_pg__products
+    config:
+      tags: ["pg_silver"]
+    given:
+      - input: source('stylehub_pg', 'pg_products')
+        rows:
+          - {id: 1, name: Old, cost: 5, updated_at: "2026-10-01 00:00:00", _ingested_at: "2026-10-02 02:00:00"}
+          - {id: 1, name: New, cost: 6, updated_at: "2026-10-05 00:00:00", _ingested_at: "2026-10-06 02:00:00"}
+          - {id: 2, name: Gone, cost: 7, updated_at: "2026-10-01 00:00:00", _ingested_at: "2026-10-02 02:00:00"}
+      - input: source('stylehub_pg', 'pg_deleted_ids')
+        rows:
+          - {table_name: products, id: 2, detected_at: "2026-10-08 02:30:00"}
+          - {table_name: orders, id: 1, detected_at: "2026-10-08 02:30:00"}
+    expect:
+      rows:
+        - {id: 1, name: New, is_deleted: false, deleted_at: null}
+        - {id: 2, name: Gone, is_deleted: true, deleted_at: "2026-10-08 02:30:00"}

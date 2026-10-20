@@ -6,7 +6,7 @@ WITH items AS (
     order_id,
     amount
   FROM {{ ref('pg_fact_order_items') }}
-  WHERE {{ revenue_order_filter('status') }}
+  WHERE {{ pg_revenue_filter('status') }}
 )
 
 SELECT

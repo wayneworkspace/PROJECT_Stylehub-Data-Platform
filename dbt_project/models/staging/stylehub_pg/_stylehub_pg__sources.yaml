@@ -78,7 +78,9 @@ sources:
           - name: updated_at
             data_type: datetime
       - name: pg_deleted_ids
-        description: Ids deleted in Postgres; rewritten whole by the pg_reconcile step.
+        description: >
+          Ids deleted in Postgres, rewritten whole by the pg_reconcile step; detected_at
+          keeps the first day an id was seen missing.
       - name: pg_users
         columns:
           - name: id

@@ -6,7 +6,7 @@ WITH customer_revenue AS (
     user_id,
     SUM(amount) AS revenue
   FROM {{ ref('pg_fact_order_items') }}
-  WHERE {{ revenue_order_filter('status') }}
+  WHERE {{ pg_revenue_filter('status') }}
   GROUP BY month, user_id
 ),
 

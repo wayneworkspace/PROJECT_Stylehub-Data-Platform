@@ -17,7 +17,9 @@ orders AS (
     order_id,
     user_id,
     status,
-    DATE(created_at) AS order_date
+    DATE(created_at) AS order_date,
+    is_deleted,
+    deleted_at
   FROM {{ ref('stg_pg__orders') }}
 ),
 
@@ -30,6 +32,7 @@ products AS (
 
 history AS (
   SELECT
+    product_key,
     product_id,
     cost,
     valid_from,
@@ -42,6 +45,7 @@ SELECT
   i.order_id,
   o.user_id,
   i.product_id,
+  h.product_key,  -- the product version on sale day (pg_dim_products_history)
   o.status,
   i.sale_price,
   i.quantity,
@@ -51,7 +55,10 @@ SELECT
   h.cost AS cost_at_sale,
   i.quantity * h.cost AS total_cost_at_sale,
   o.order_date,
-  i.created_at
+  i.created_at,
+  -- Deleted when the item or its order was deleted in Postgres.
+  i.is_deleted OR COALESCE(o.is_deleted, FALSE) AS is_deleted,
+  COALESCE(i.deleted_at, o.deleted_at) AS deleted_at
 FROM items AS i
 LEFT JOIN orders AS o
   ON i.order_id = o.order_id

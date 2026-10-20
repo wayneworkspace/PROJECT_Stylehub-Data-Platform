@@ -1,7 +1,9 @@
 # Local Docker setup; nothing starts unless you pick a profile.
 #   airflow  docker compose --env-file secrets/.env --profile airflow up -d --build  (localhost:8080)
 #   serving  docker compose --env-file secrets/.env --profile serving up -d --build  (localhost:8501)
-# Images contain the code, so rebuild with --build after changes.
+# Images contain the code, so rebuild with --build after changes. To run the
+# dashboard image CI tested instead, set DASHBOARD_IMAGE to its registry tag and
+# use `pull` and `up -d --no-build`. Production runs from .github/workflows/pipeline.yml.
 # AIRFLOW_ values in secrets/.env are for a throwaway local container.
 
 x-airflow-common: &airflow-common
@@ -9,6 +11,7 @@ x-airflow-common: &airflow-common
   build:
     context: .
     dockerfile: Dockerfile
+  restart: unless-stopped
   environment:
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
@@ -30,9 +33,6 @@ x-airflow-common: &airflow-common
     PYTHONPATH: /opt/airflow  # makes config.airflow_local_settings importable
     DBT_USE_COLORS: "false"  # task logs are files, so no color codes
     ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}  # Discord alerts; empty means log only
-    # Products API: an Airflow Connection and Variable defined by environment variables.
-    AIRFLOW_CONN_STYLEHUB_API: '{"conn_type": "http", "host": "dummyjson.com", "schema": "https"}'
-    AIRFLOW_VAR_STYLEHUB_API_PAGE_SIZE: "50"
   volumes:
     # Secrets, logging config and logs; drop secrets on a VM.
     - ./secrets:/opt/stylehub/secrets:ro
@@ -46,9 +46,16 @@ x-airflow-common: &airflow-common
 services:
   dashboard:
     profiles: ["serving"]
+    image: ${DASHBOARD_IMAGE:-stylehub-dashboard:local}
     build:
       context: .
       dockerfile: Dockerfile.dashboard
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8501/_stcore/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     ports:
       - "127.0.0.1:8501:8501"  # localhost only: the dashboard has no login
     env_file:
@@ -60,6 +67,7 @@ services:
   airflow-db:
     profiles: ["airflow"]
     image: postgres:16
+    restart: unless-stopped
     environment:
       POSTGRES_USER: airflow
       POSTGRES_PASSWORD: ${AIRFLOW_DB_PASSWORD:-}
@@ -75,6 +83,7 @@ services:
   # Runs once: checks the secrets, then creates the Airflow tables.
   airflow-init:
     <<: *airflow-common
+    restart: "no"  # one run, then it exits
     entrypoint: /bin/bash
     command:
       - -c
@@ -83,8 +92,7 @@ services:
         : "$${AIRFLOW_ADMIN_PASSWORD:?set AIRFLOW_ADMIN_PASSWORD in secrets/.env}" &&
         : "$${AIRFLOW__API__SECRET_KEY:?set AIRFLOW_SECRET_KEY in secrets/.env}" &&
         : "$${AIRFLOW__CORE__FERNET_KEY:?set AIRFLOW_FERNET_KEY in secrets/.env}" &&
-        airflow db migrate &&
-        airflow pools set api_pool 2 "Products API: at most 2 requests at once"
+        airflow db migrate
 
   # Web page and task API; replaces the Airflow 2 webserver.
   airflow-apiserver:
@@ -112,6 +120,11 @@ services:
     <<: *airflow-common
     command: dag-processor
     depends_on: *after-init
+    healthcheck:
+      test: ["CMD", "airflow", "jobs", "check", "--job-type", "DagProcessorJob", "--local"]
+      interval: 60s
+      timeout: 30s
+      retries: 5
 
   airflow-scheduler:
     <<: *airflow-common
@@ -120,6 +133,11 @@ services:
       <<: *after-init
       airflow-apiserver:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "airflow", "jobs", "check", "--job-type", "SchedulerJob", "--local"]
+      interval: 60s
+      timeout: 30s
+      retries: 5
 
 volumes:
   airflow-db-data:
