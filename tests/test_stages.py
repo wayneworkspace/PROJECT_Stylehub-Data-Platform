@@ -1,5 +1,6 @@
 """Pipeline stages against fake GCS, BigQuery, Postgres and dbt; no cloud needed."""
 
+import ast
 import io
 import logging
 import os
@@ -13,6 +14,7 @@ from typing import ClassVar
 import pandas as pd
 import pyarrow.parquet as pq
 import pytest
+import yaml
 from google.api_core import exceptions
 
 config = import_module("src.1_source.config")
@@ -499,6 +501,33 @@ def test_run_daily_records_failures(cfg, monkeypatch) -> None:
 
 
 # dags -----------------------------------------------------------------------------------
+
+
+def test_command_lines_pass_their_arguments(monkeypatch) -> None:
+    freshness = import_module("src.5_serving.freshness")
+    calls: list[tuple] = []
+    monkeypatch.setattr(run_daily, "run_step", lambda *a: calls.append(("step", *a)))
+    monkeypatch.setattr(freshness, "check", lambda *a: calls.append(("fresh", *a)))
+    run_daily.main(["2026-10-01", "ingest", "gha-1"])
+    monkeypatch.setattr(sys, "argv", ["freshness", "2026-10-01", "gha-1"])
+    freshness.main()  # reads sys.argv like `python -m`
+    assert calls == [("step", "2026-10-01", "ingest", "gha-1"), ("fresh", "2026-10-01", "gha-1")]
+
+
+def test_scheduled_workflow_runs_the_dag_steps() -> None:
+    """pipeline.yml must run the same steps, in the same order, as the Airflow DAG."""
+    tree = ast.parse((config.ROOT / "dags" / "main_etl_dag.py").read_text(encoding="utf-8"))
+    dag = {
+        node.targets[0].id: ast.literal_eval(node.value)
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        and isinstance(node.targets[0], ast.Name)
+        and node.targets[0].id in {"CSV_STEPS", "PG_STEPS", "PG_ENABLED"}
+    }
+    workflow = yaml.safe_load((config.ROOT / ".github/workflows/pipeline.yml").read_text())
+    assert workflow["env"]["CSV_STEPS"].split() == dag["CSV_STEPS"]
+    assert workflow["env"]["PG_STEPS"].split() == (dag["PG_STEPS"] if dag["PG_ENABLED"] else [])
+    assert set(dag["CSV_STEPS"] + dag["PG_STEPS"]) <= set(run_daily.STEPS)
 
 
 def test_run_python_step_calls_run_daily(monkeypatch) -> None:

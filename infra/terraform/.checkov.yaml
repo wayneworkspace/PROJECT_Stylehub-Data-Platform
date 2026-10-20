@@ -1,0 +1,15 @@
+# checkov checks skipped on purpose, each with its reason (CI runs checkov on infra/terraform).
+skip-check:
+  # Customer-managed keys need Cloud KMS, which costs money every month; data is
+  # already encrypted at rest by Google. This is a free-tier personal project.
+  - CKV_GCP_80 # BigQuery table CSEK
+  - CKV_GCP_81 # BigQuery dataset CSEK
+  - CKV_GCP_84 # Artifact Registry CSEK
+  # Access logs need a second bucket; the Raw bucket is private and data
+  # access shows in the Cloud Audit Logs.
+  - CKV_GCP_62
+  # sa-terraform-apply must create and manage the service accounts in iam.tf.
+  - CKV_GCP_49
+  # The WIF provider only accepts this repository (attribute_condition), and
+  # only main may act as the apply, CD and pipeline accounts (wif.tf).
+  - CKV_GCP_125

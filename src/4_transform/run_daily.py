@@ -1,5 +1,6 @@
 """Run one pipeline step for one date; record it in pipeline_runs."""
 
+import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import partial
@@ -121,3 +122,13 @@ def run_step(data_date: str, step: str, run_id: str) -> None:
             run_id, step, data_date, status, started, finished, rows, error, detail, cfg
         )
     log.info("[run %s] step %s done in %.1fs", run_id, step, (finished - started).total_seconds())
+
+
+def main(argv: list[str] | None = None) -> None:
+    """Command line for the scheduled GitHub workflow: DATA_DATE STEP RUN_ID."""
+    data_date, step, run_id = sys.argv[1:] if argv is None else argv
+    run_step(data_date, step, run_id)
+
+
+if __name__ == "__main__":
+    main()

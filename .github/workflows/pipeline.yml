@@ -1,0 +1,85 @@
+name: Pipeline
+
+# The daily run on GitHub Actions: free for a public repository, no machine to
+# keep on. Same steps and order as dags/main_etl_dag.py (tests/test_custom_code.py
+# checks both lists). Airflow stays for local runs and demos.
+on:
+  schedule:
+    - cron: "0 2 * * *" # 02:00 UTC, like the Airflow DAG; GitHub may start a few minutes late
+  workflow_dispatch:
+    inputs:
+      data_date:
+        description: "Data day YYYY-MM-DD (backfill); empty is yesterday in UTC"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  id-token: write # sign in to Google Cloud as sa-pipeline
+
+concurrency: # one run at a time; a second one waits
+  group: pipeline
+  cancel-in-progress: false
+
+env:
+  PYTHON_VERSION: "3.13"
+  UV_VERSION: "0.12.13"
+  # Steps of each branch, as in dags/main_etl_dag.py. PG_STEPS stays empty while
+  # the Postgres branch is paused (PG_ENABLED = False there).
+  CSV_STEPS: "ingest bronze silver gold"
+  PG_STEPS: ""
+
+jobs:
+  run:
+    name: Daily run
+    if: vars.WIF_PIPELINE_SERVICE_ACCOUNT != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 60 # a run takes about 5 minutes
+    env:
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GCS_BUCKET: ${{ vars.GCS_BUCKET }}
+      GCP_LOCATION: ${{ vars.GCP_REGION }}
+      ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
+      POSTGRES_URL: ${{ secrets.POSTGRES_URL }}
+      DBT_USE_COLORS: "false"
+      RUN_ID: gha-${{ github.run_id }}
+      INPUT_DATE: ${{ inputs.data_date }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.WIF_PIPELINE_SERVICE_ACCOUNT }}
+      - name: Pick the data day
+        run: |
+          DATA_DATE="${INPUT_DATE:-$(date -u -d yesterday +%F)}"
+          echo "DATA_DATE=$DATA_DATE" >> "$GITHUB_ENV"
+          echo "Data day: $DATA_DATE, run $RUN_ID" >> "$GITHUB_STEP_SUMMARY"
+      - name: Install the pipeline
+        run: |
+          uv sync --frozen --extra dbt
+          uv run dbt deps --project-dir dbt_project --profiles-dir dbt_project --log-path logs/dbt
+      - name: Course tables branch
+        run: |
+          for step in $CSV_STEPS; do
+            uv run python -m src.4_transform.run_daily "$DATA_DATE" "$step" "$RUN_ID"
+          done
+      - name: Postgres branch
+        if: env.PG_STEPS != ''
+        run: |
+          for step in $PG_STEPS; do
+            uv run python -m src.4_transform.run_daily "$DATA_DATE" "$step" "$RUN_ID"
+          done
+      - name: Freshness of the Bronze tables
+        run: uv run python -m src.5_serving.freshness "$DATA_DATE" "$RUN_ID"
+      - name: Tell Discord the run failed
+        if: failure() && env.ALERT_WEBHOOK_URL != ''
+        run: |
+          URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          jq -n --arg c ":x: **Pipeline** failed for $DATA_DATE ($RUN_ID): $URL" '{content: $c}' \
+            | curl -sS -X POST -H "Content-Type: application/json" -d @- "$ALERT_WEBHOOK_URL" > /dev/null

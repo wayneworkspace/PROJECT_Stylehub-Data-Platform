@@ -1,5 +1,6 @@
 """Fail and alert when a daily Bronze table was not loaded recently."""
 
+import sys
 from datetime import UTC, datetime
 from importlib import import_module
 
@@ -41,3 +42,13 @@ def check(data_date: str, run_id: str) -> None:
         alerts.send_alert(f":warning: **stylehub_daily** {run_id}: {error}")
         raise RuntimeError(error)
     log.info("[run %s] all %d Bronze tables are fresh", run_id, len(rows))
+
+
+def main(argv: list[str] | None = None) -> None:
+    """Command line for the GitHub workflows: DATA_DATE RUN_ID."""
+    data_date, run_id = sys.argv[1:] if argv is None else argv
+    check(data_date, run_id)
+
+
+if __name__ == "__main__":
+    main()

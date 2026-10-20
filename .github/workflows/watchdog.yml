@@ -1,0 +1,44 @@
+name: Watchdog
+
+# Ten hours after the daily run: if it did not run at all, nothing else would
+# notice. The freshness check fails and alerts Discord when a Bronze table is
+# older than 26 hours; it reads free table metadata only.
+on:
+  schedule:
+    - cron: "0 12 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  PYTHON_VERSION: "3.13"
+  UV_VERSION: "0.12.13"
+
+jobs:
+  freshness:
+    name: Bronze tables are fresh
+    if: vars.WIF_PIPELINE_SERVICE_ACCOUNT != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GCS_BUCKET: ${{ vars.GCS_BUCKET }}
+      GCP_LOCATION: ${{ vars.GCP_REGION }}
+      ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.WIF_PIPELINE_SERVICE_ACCOUNT }}
+      - name: Check freshness (alerts Discord itself when stale)
+        run: |
+          uv sync --frozen
+          uv run python -m src.5_serving.freshness "$(date -u -d yesterday +%F)" "watchdog-${{ github.run_id }}"

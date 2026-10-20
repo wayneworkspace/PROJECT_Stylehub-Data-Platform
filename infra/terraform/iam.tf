@@ -40,7 +40,10 @@ locals {
     "pipeline-job-user"  = { role = "roles/bigquery.jobUser", sa = "sa-pipeline" }
     "dashboard-job-user" = { role = "roles/bigquery.jobUser", sa = "sa-dashboard" }
     "grafana-job-user"   = { role = "roles/bigquery.jobUser", sa = "sa-grafana" }
-    "grafana-metrics"    = { role = "roles/monitoring.viewer", sa = "sa-grafana" }
+    # to_dataframe() reads through the BigQuery Storage API, which needs read sessions.
+    "pipeline-read-sessions"  = { role = "roles/bigquery.readSessionUser", sa = "sa-pipeline" }
+    "dashboard-read-sessions" = { role = "roles/bigquery.readSessionUser", sa = "sa-dashboard" }
+    "grafana-metrics"         = { role = "roles/monitoring.viewer", sa = "sa-grafana" }
     # CD puts the tested image on the Cloud Run dashboard.
     "cd-run-developer" = { role = "roles/run.developer", sa = "sa-github-cd" }
     # Plan reads metadata and IAM policies only, never table rows or files.

@@ -1,6 +1,8 @@
 name: CD
 
-# After CI passes on main: apply infra, push the tested image, run dbt.
+# After CI passes on main: apply infra, push the tested images, build dbt on
+# staging, then on production after approval, then update the dashboard.
+# The production environment (Settings > Environments) holds the approval.
 on:
   workflow_run:
     workflows: [CI]
@@ -40,6 +42,9 @@ jobs:
       TF_VAR_state_bucket: ${{ vars.TF_STATE_BUCKET }}
       TF_VAR_github_repository: ${{ github.repository }}
       TF_VAR_enable_airflow_vm: ${{ vars.ENABLE_AIRFLOW_VM || 'false' }} # one switch for plan and apply
+      TF_VAR_billing_account_id: ${{ vars.BILLING_ACCOUNT_ID }}
+      TF_VAR_developer_members: ${{ vars.DEVELOPER_MEMBERS || '[]' }}
+      TF_VAR_editors: ${{ vars.WIF_PIPELINE_SERVICE_ACCOUNT && format('["serviceAccount:{0}"]', vars.WIF_PIPELINE_SERVICE_ACCOUNT) || '[]' }}
       TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -52,11 +57,13 @@ jobs:
         with:
           workload_identity_provider: ${{ vars.WIF_PROVIDER }}
           service_account: ${{ vars.WIF_APPLY_SERVICE_ACCOUNT }}
-      - name: terraform apply
-        run: bash infra/scripts/deploy.sh apply
+      - name: terraform apply (production, then the dev datasets used as staging)
+        run: |
+          bash infra/scripts/deploy.sh apply
+          TF_ENV=dev bash infra/scripts/deploy.sh apply
 
-  publish-image:
-    name: Push the tested Airflow image
+  publish-images:
+    name: Push the tested images
     needs: terraform-apply
     if: >-
       !cancelled() && needs.terraform-apply.result != 'failure' &&
@@ -70,36 +77,78 @@ jobs:
       id-token: write
     env:
       SHA: ${{ github.event.workflow_run.head_sha }}
-      IMAGE: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.AR_REPOSITORY }}/stylehub-airflow
+      REGISTRY: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.AR_REPOSITORY }}
     steps:
-      - name: Download the image that CI tested
+      - name: Download the images that CI tested
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
-          name: airflow-image
+          name: images
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Load it and check it is the tested commit
+      - name: Load them and check they are the tested commit
         run: |
-          docker load --input airflow-image.tar.gz
-          docker image inspect "stylehub-airflow:$SHA" > /dev/null
+          docker load --input images.tar.gz
+          docker image inspect "stylehub-airflow:$SHA" "stylehub-dashboard:$SHA" > /dev/null
       - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
         with:
           workload_identity_provider: ${{ vars.WIF_PROVIDER }}
           service_account: ${{ vars.WIF_CD_SERVICE_ACCOUNT }}
-      - name: Push the image; the tag is the commit id
+      - name: Push both images; tags are the commit id and main
         run: |
           gcloud auth configure-docker "${{ vars.GCP_REGION }}-docker.pkg.dev" --quiet
-          docker tag "stylehub-airflow:$SHA" "$IMAGE:$SHA"
-          docker push "$IMAGE:$SHA"
-          echo "Airflow image: \`$IMAGE:$SHA\`" >> "$GITHUB_STEP_SUMMARY"
+          for name in stylehub-airflow stylehub-dashboard; do
+            for tag in "$SHA" main; do  # main always points to the newest tested commit
+              docker tag "$name:$SHA" "$REGISTRY/$name:$tag"
+              docker push "$REGISTRY/$name:$tag"
+            done
+            echo "$name: \`$REGISTRY/$name:$SHA\`" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+  dbt-staging:
+    name: dbt build on staging
+    needs: publish-images
+    if: >-
+      !cancelled() && needs.publish-images.result == 'success' &&
+      vars.WIF_PIPELINE_SERVICE_ACCOUNT != ''
+    runs-on: ubuntu-latest
+    environment: staging
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GCP_LOCATION: ${{ vars.GCP_REGION }}
+      # Reads production Bronze, writes only the _dev datasets (tables expire after a day).
+      BQ_STAGING: stylehub_staging_dev
+      BQ_SILVER: stylehub_silver_dev
+      BQ_GOLD: stylehub_gold_dev
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.WIF_PIPELINE_SERVICE_ACCOUNT }}
+      - name: Build models and run their tests on the staging datasets
+        run: |
+          uv sync --frozen --extra dbt
+          uv run dbt deps --project-dir dbt_project --profiles-dir dbt_project --log-path logs/dbt
+          uv run dbt build --project-dir dbt_project --profiles-dir dbt_project --log-path logs/dbt \
+            --fail-fast --indirect-selection cautious --exclude tag:events
 
   dbt-run:
     name: dbt build on production
-    needs: publish-image
+    needs: dbt-staging
     if: >-
-      !cancelled() && needs.publish-image.result == 'success' &&
+      !cancelled() && needs.dbt-staging.result == 'success' &&
       vars.WIF_PIPELINE_SERVICE_ACCOUNT != ''
     runs-on: ubuntu-latest
+    environment: production # waits for approval
     permissions:
       contents: read
       id-token: write
@@ -124,3 +173,42 @@ jobs:
           uv run dbt deps --project-dir dbt_project --profiles-dir dbt_project --log-path logs/dbt
           uv run dbt build --project-dir dbt_project --profiles-dir dbt_project --log-path logs/dbt \
             --fail-fast --indirect-selection cautious --exclude tag:events
+
+  deploy-dashboard:
+    name: Put the tested dashboard on Cloud Run
+    needs: dbt-run # production is already approved
+    if: >-
+      !cancelled() && needs.dbt-run.result == 'success' &&
+      vars.WIF_CD_SERVICE_ACCOUNT != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      SHA: ${{ github.event.workflow_run.head_sha }}
+      IMAGE: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.AR_REPOSITORY }}/stylehub-dashboard
+    steps:
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.WIF_CD_SERVICE_ACCOUNT }}
+      - name: Deploy the new revision
+        run: |
+          gcloud run services update stylehub-dashboard --region "${{ vars.GCP_REGION }}" \
+            --project "${{ vars.GCP_PROJECT_ID }}" --image "$IMAGE:$SHA" --quiet
+          echo "Dashboard: \`$IMAGE:$SHA\`" >> "$GITHUB_STEP_SUMMARY"
+
+  notify:
+    name: Tell Discord that CD failed
+    needs: [terraform-apply, publish-images, dbt-staging, dbt-run, deploy-dashboard]
+    if: failure()
+    runs-on: ubuntu-latest
+    env:
+      ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
+    steps:
+      - name: Post the message
+        if: env.ALERT_WEBHOOK_URL != ''
+        run: |
+          URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          jq -n --arg c ":x: **CD** failed ($GITHUB_SHA): $URL" '{content: $c}' \
+            | curl -sS -X POST -H "Content-Type: application/json" -d @- "$ALERT_WEBHOOK_URL" > /dev/null

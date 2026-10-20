@@ -1,0 +1,71 @@
+name: Restate published revenue
+
+# Publish a corrected number for closed months: adds a 'restated' version to
+# pg_published_monthly_revenue and keeps the old one. Runs only after approval
+# of the production environment.
+on:
+  workflow_dispatch:
+    inputs:
+      months:
+        description: "Months to restate, first day, comma separated: 2026-09-01,2026-08-01"
+        required: true
+        type: string
+      note:
+        description: "Why the number changes (shown next to the new version)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: pipeline # never at the same time as the daily run
+  cancel-in-progress: false
+
+env:
+  PYTHON_VERSION: "3.13"
+  UV_VERSION: "0.12.13"
+
+jobs:
+  restate:
+    name: Restate on production
+    if: vars.WIF_PIPELINE_SERVICE_ACCOUNT != ''
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+    env:
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GCP_LOCATION: ${{ vars.GCP_REGION }}
+      MONTHS: ${{ inputs.months }}
+      NOTE: ${{ inputs.note }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.WIF_PIPELINE_SERVICE_ACCOUNT }}
+      - name: Check the input and build the dbt vars
+        # Inputs arrive through env, never pasted into the script, so text cannot run as code.
+        run: |
+          VARS=$(python3 - <<'PY'
+          import json, os, re
+          months = [m.strip() for m in os.environ["MONTHS"].split(",") if m.strip()]
+          bad = [m for m in months if not re.fullmatch(r"\d{4}-\d{2}-01", m)]
+          if not months or bad:
+              raise SystemExit(f"Months must look like 2026-09-01; got: {bad or 'nothing'}")
+          print(json.dumps({"restate_months": months, "restate_note": os.environ["NOTE"][:200]}))
+          PY
+          )
+          echo "DBT_VARS=$VARS" >> "$GITHUB_ENV"
+      - name: Build the published revenue model with the restated months
+        run: |
+          uv sync --frozen --extra dbt
+          uv run dbt deps --project-dir dbt_project --profiles-dir dbt_project --log-path logs/dbt
+          uv run dbt build --project-dir dbt_project --profiles-dir dbt_project --log-path logs/dbt \
+            --select pg_published_monthly_revenue --vars "$DBT_VARS"
