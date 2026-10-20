@@ -11,7 +11,7 @@ get_logger = import_module("src.0_utils.logger").get_logger
 
 config = import_module("src.1_source.config")
 utils = import_module("src.1_source.utils")
-api_products = import_module("src.2_ingestion.api_products")
+api_users = import_module("src.2_ingestion.api_users")
 csv_tables = import_module("src.2_ingestion.csv_tables")
 pg_tables = import_module("src.2_ingestion.postgres_tables")
 events_bronze = import_module("src.3_storage.events_bronze")
@@ -83,17 +83,15 @@ def step_pg_reconcile(data_date: str, cfg: config.Settings) -> StepOutcome:
 
 
 def step_api_ingest(data_date: str, cfg: config.Settings) -> StepOutcome:
-    # Full snapshot of the API products; one new batch per run.
-    rows = api_products.ingest(data_date, cfg)
-    return StepOutcome(rows, {"rows_by_table": {api_products.TABLE: rows}})
+    # Incremental load of the API users, watermark updated_at.
+    rows = api_users.ingest(data_date, cfg)
+    return StepOutcome(rows, {"rows_by_table": {api_users.TABLE: rows}})
 
 
 def step_api_bronze(data_date: str, cfg: config.Settings) -> StepOutcome:
-    # One snapshot partition per day, like the CSV tables.
-    rows = load_bronze.load_day(api_products.TABLE, data_date, cfg)
-    if rows == 0:
-        raise RuntimeError(f"api_bronze: no Raw file for {data_date}; did api_ingest run?")
-    return StepOutcome(rows, {"rows_by_table": {api_products.TABLE: rows}})
+    # No Raw file means no changed users that day; partitions never expire.
+    rows = load_bronze.load_day(api_users.TABLE, data_date, cfg, keep_days=None)
+    return StepOutcome(rows, {"rows_by_table": {api_users.TABLE: rows}})
 
 
 def step_dbt(layer: str, data_date: str, cfg: config.Settings) -> StepOutcome:

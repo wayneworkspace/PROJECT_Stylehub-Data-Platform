@@ -16,12 +16,12 @@ A daily ELT pipeline that turns the StyleHub online shop's raw tables and its li
 ```text
 Course tables (BigQuery) --full load--> Raw Zone (GCS Parquet) -> Bronze -> Silver -> Gold --> Streamlit
 Postgres (course DB) --incremental-->  Raw Zone (GCS, pg_*)    -> Bronze -> Silver -> Gold --> Streamlit EDA
-StyleHub API        --full snapshot-> Raw Zone (api_products)  -> Bronze -> Silver (api_products)
+StyleHub REST API   --incremental-->  Raw Zone (api_users)     -> Bronze -> Silver (api_users)
 
 Daily at 02:00 UTC, GitHub Actions (pipeline.yml) or Airflow (stylehub_daily), same steps:
   ingest    -> bronze    -> silver    -> gold
   pg_ingest -> pg_bronze -> pg_reconcile -> pg_silver -> pg_gold
-  api_ingest -> api_bronze -> api_silver   (off until the API address is known: API_ENABLED)
+  api_ingest -> api_bronze -> api_silver
   [gold, pg_gold, api_silver] -> freshness (fails when a Bronze table is older than 26 hours)
 12:00 UTC watchdog.yml: freshness again, so a run that never started still alerts.
 Every step attempt is recorded in stylehub_ops.pipeline_runs; failures post to Discord.
@@ -34,7 +34,7 @@ Deploy (CD, after CI on main): terraform apply (prod, dev) -> push tested images
 | Step | Description | Source code path |
 | --- | --- | --- |
 | **Sources** | Settings, GCP and Postgres clients, retry with backoff, one-time CSV upload | `src/1_source/` |
-| **Ingestion** | Full load of course tables with a schema check; incremental Postgres load by `updated_at` watermark with a 1-day lookback, read in 50,000-row chunks with one fixed Parquet schema per table, `_SUCCESS` written last so a half-written batch is never loaded; daily full snapshot of the StyleHub API products (Bearer key, every page until `has_more` is false, rows checked against `meta.count`, 429 and 5xx retried); append-only Parquet in Raw | `src/2_ingestion/` |
+| **Ingestion** | Full load of course tables with a schema check; incremental Postgres load by `updated_at` watermark with a 1-day lookback, read in 50,000-row chunks with one fixed Parquet schema per table, `_SUCCESS` written last so a half-written batch is never loaded; incremental StyleHub REST API users by `updated_from`/`updated_to` with a 1-day lookback (JWT from the API key, every page until `has_more` is false, rows checked against `meta.count` and read again when a page shifted, 429 and 5xx retried); append-only Parquet in Raw | `src/2_ingestion/` |
 | **Bronze** | Write-audit-publish: load into staging, check row counts against the Raw file, then replace the day's partition; a daily id compare finds rows deleted in Postgres | `src/3_storage/` |
 | **Silver** | Newest row per id, typed columns, facts and dimensions with grain tests; rows deleted in Postgres kept with `is_deleted`; SCD Type 2 products (new version only when the tracked columns' hash changes, `product_key` surrogate key); `pg_fact_orders_versions` for as-of questions | `dbt_project/models/staging/`, `dbt_project/models/marts/core/`, `dbt_project/models/marts/pg_core/` |
 | **Gold** | Business rules: revenue, top customers, return rate, delivery time, order value, without deleted rows; published monthly revenue kept as version 1, a `restated` version added only on request (`restate_months` var); contracts and unit tests | `dbt_project/models/marts/reporting/`, `dbt_project/models/marts/pg_reporting/` |
@@ -65,7 +65,7 @@ Deploy (CD, after CI on main): terraform apply (prod, dev) -> push tested images
 * **Quality:** dbt passed 29 Silver and 13 Gold checks on the course branch and 26 Silver checks on the Postgres branch; unit tests cover 100% of 882 Python statements.
 * **Insights:** the EDA page reads 316,358 Postgres order items of the last 90 days; it found no rule violations (no negative amounts, `amount` always equals `sale_price * quantity`), and 5.7% to 9.4% IQR outliers in price, quantity and amount.
 
-*Current limitations:* the course API moved and its new address is not known yet, so the API branch is off (`API_ENABLED` in `dags/main_etl_dag.py`); set `STYLEHUB_API_URL` to turn it on. The API returns only today's catalog, so a missed day cannot be backfilled. Production runs on GitHub Actions; Airflow runs only in local Docker, because a VM is not in the free tier. GitHub stops scheduled workflows after 60 days without repository activity. Postgres deletes are found by a daily full id compare, not by change data capture. Product cost history starts on 2026-10-01, so older sales use the first known cost. The first Postgres load left some orders without their customer and some items without their order (dbt warnings); the next incremental run fixed the customers, but items without an order remain a warning.
+*Current limitations:* the REST API never reports deleted users, so they stay in `api_users`; its key lasts 90 days and must be renewed on the docs site. Production runs on GitHub Actions; Airflow runs only in local Docker, because a VM is not in the free tier. GitHub stops scheduled workflows after 60 days without repository activity. Postgres deletes are found by a daily full id compare, not by change data capture. Product cost history starts on 2026-10-01, so older sales use the first known cost. The first Postgres load left some orders without their customer and some items without their order (dbt warnings); the next incremental run fixed the customers, but items without an order remain a warning.
 
 ## Quick Start
 

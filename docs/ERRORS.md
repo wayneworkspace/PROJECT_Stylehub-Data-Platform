@@ -65,9 +65,9 @@ Each row: the message you see, why it happens, and the fix. Commands run from th
 | `Cloud Resource Manager API has not been used` | API is off in the project | First apply enables it; or `gcloud services enable cloudresourcemanager.googleapis.com` |
 | `Error acquiring the state lock` | Another plan or apply is running | Wait; `terraform force-unlock <id>` only if it crashed |
 | `Failed to get existing workspaces: bucket doesn't exist` | State bucket not created | `gcloud storage buckets create gs://<state-bucket> --location=asia-southeast1` |
-| `api_products: read N rows (M ids), the API reports K` | A product was added while paging, so a page shifted | Rerun `api_ingest`; it writes a new batch |
-| `401` from the API | Wrong or expired `STYLEHUB_API_KEY` | Remove the key from `.env` (a new one is asked) or set a new one |
-| `STYLEHUB_API_URL is not set` | API branch on without its address | Set it in `secrets/.env` and the GitHub variable `STYLEHUB_API_URL` |
+| `api_users: rows still differ from meta.count after 3 reads` | Many users changed during the read, so the pages kept shifting | Rerun `api_ingest`; it writes a new batch |
+| `401` from `/auth/token` or the API | `STYLEHUB_API_KEY` wrong or older than 90 days | Make a new key on the docs site (Create API Key), then update `secrets/.env` and the GitHub secret `STYLEHUB_API_KEY` |
+| `STYLEHUB_API_KEY is not set` | No API key in the environment | Add it to `secrets/.env` and the GitHub secret `STYLEHUB_API_KEY` |
 | Pipeline run does not start at 02:00 | GitHub disabled the schedule after 60 days without a commit | Actions > Pipeline > Enable workflow |
 | `403 ... bigquery.readsessions.create` in a Pipeline run | IAM change not applied yet | Merge and let CD apply; `sa-pipeline` gets `roles/bigquery.readSessionUser` |
 | CI plan step skipped | `WIF_PLAN_SERVICE_ACCOUNT` variable not set | Set the variables from `terraform output github_variables` |

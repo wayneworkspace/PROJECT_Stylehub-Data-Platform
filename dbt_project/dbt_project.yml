@@ -45,8 +45,8 @@ models:
         +tags: ["pg_silver"]
       stylehub_api:
         +tags: ["api_silver"]
-        # Built only where the API is set up; CD and dev runs skip it otherwise.
-        +enabled: "{{ env_var('STYLEHUB_API_URL', '') != '' }}"
+        # Built only where the API key is set (the daily run); CD skips it.
+        +enabled: "{{ env_var('STYLEHUB_API_KEY', '') != '' }}"
     intermediate:
       +materialized: view
       +schema: "{{ env_var('BQ_SILVER', 'stylehub_silver') }}"
@@ -68,7 +68,7 @@ models:
         +materialized: table
         +schema: "{{ env_var('BQ_SILVER', 'stylehub_silver') }}"
         +tags: ["api_silver"]
-        +enabled: "{{ env_var('STYLEHUB_API_URL', '') != '' }}"
+        +enabled: "{{ env_var('STYLEHUB_API_KEY', '') != '' }}"
       pg_reporting:
         +materialized: table
         +schema: "{{ env_var('BQ_GOLD', 'stylehub_gold') }}"

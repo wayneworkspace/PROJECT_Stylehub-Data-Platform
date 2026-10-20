@@ -58,16 +58,8 @@ def read_window(data_date: str, watermark: datetime | None) -> tuple[datetime | 
 
 def bronze_watermark(table: str, data_date: str, cfg: config.Settings) -> datetime | None:
     """Newest updated_at in Bronze before data_date, so reruns read the same window."""
-    client = config.bq_client(cfg)
     table_id = f"{cfg.project}.{cfg.bronze}.{raw_name(table)}"
-    if not bq.table_exists(client, table_id):
-        return None
-    sql = (
-        f"SELECT MAX({WATERMARK}) FROM `{table_id}` "  # noqa: S608
-        f"WHERE _PARTITIONDATE < DATE '{data_date}'"
-    )
-    rows = retry.call_with_retry(lambda: list(client.query(sql, job_config=bq.query_config(cfg))))
-    return rows[0][0]
+    return bq.newest_before(table_id, WATERMARK, data_date, cfg)
 
 
 def arrow_schema(table: str, columns: list[tuple[str, str]]) -> pa.Schema:

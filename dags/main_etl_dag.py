@@ -19,10 +19,7 @@ CSV_STEPS = ["ingest", "bronze", "silver", "gold"]
 PG_STEPS = ["pg_ingest", "pg_bronze", "pg_reconcile", "pg_silver", "pg_gold"]
 API_STEPS = ["api_ingest", "api_bronze", "api_silver"]
 PG_ENABLED = True
-# shortcut: API branch off, the course API moved and its new base URL is unknown
-# (the old Supabase URL is gone, 2026-10-20); set STYLEHUB_API_URL, then set True here,
-# API_STEPS in pipeline.yml and api_products in 02_data_freshness.sql.
-API_ENABLED = False
+API_ENABLED = True
 BRANCHES = [CSV_STEPS] + [PG_STEPS] * PG_ENABLED + [API_STEPS] * API_ENABLED
 STEPS = [step for branch in BRANCHES for step in branch]
 

@@ -1,4 +1,4 @@
-"""StyleHub API: API key and one page of an endpoint, with retries."""
+"""StyleHub REST API: a JWT from the API key, and one page of an endpoint, with retries."""
 
 from importlib import import_module
 
@@ -7,15 +7,8 @@ import requests
 config = import_module("src.1_source.config")
 retry = import_module("src.1_source.retry")
 
-TIMEOUT_SECONDS = 30
-PAGE_SIZE = 1000  # the API maximum
-
-
-def base_url(cfg: config.Settings) -> str:
-    """API base URL; fails clearly when STYLEHUB_API_URL is missing."""
-    if not cfg.stylehub_api_url:
-        raise RuntimeError("STYLEHUB_API_URL is not set in secrets/.env")
-    return cfg.stylehub_api_url.rstrip("/")
+TIMEOUT_SECONDS = 60
+PAGE_SIZE = 10_000  # the API maximum; a full page is about 4 MB of JSON
 
 
 def get_json(session: requests.Session, url: str, params: dict) -> dict:
@@ -30,11 +23,18 @@ def get_json(session: requests.Session, url: str, params: dict) -> dict:
 
 
 def open_session(cfg: config.Settings) -> requests.Session:
-    """Session with the Bearer key: the one in .env, or a new one from the API."""
+    """Session with a Bearer JWT, from POST /auth/token with the API key."""
+    if cfg.stylehub_api_key is None:
+        raise RuntimeError("STYLEHUB_API_KEY is not set in secrets/.env")
     session = requests.Session()
-    if cfg.stylehub_api_key is not None:
+
+    def token() -> str:
         key = cfg.stylehub_api_key.get_secret_value()
-    else:  # the key endpoint itself needs no key
-        key = get_json(session, f"{base_url(cfg)}/stylehub-api-keys", {})["api_key"]
-    session.headers["Authorization"] = f"Bearer {key}"
+        response = session.post(
+            f"{cfg.stylehub_api_url}/auth/token", json={"api_key": key}, timeout=TIMEOUT_SECONDS
+        )
+        response.raise_for_status()
+        return response.json()["access_token"]
+
+    session.headers["Authorization"] = f"Bearer {retry.call_with_retry(token)}"
     return session

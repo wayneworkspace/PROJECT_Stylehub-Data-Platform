@@ -35,8 +35,10 @@ class Settings(BaseSettings):
     max_bytes_billed: PositiveInt = Field(50_000_000_000, validation_alias="BQ_MAX_BYTES_BILLED")
     # Read-only course database; SecretStr keeps the password out of logs.
     postgres_url: SecretStr | None = Field(None, validation_alias="POSTGRES_URL")
-    # StyleHub API; without a key, a new one is asked from the API each run.
-    stylehub_api_url: str | None = Field(None, validation_alias="STYLEHUB_API_URL")
+    # Course REST API; the key lasts 90 days (made on the docs site, "Create API Key").
+    stylehub_api_url: str = Field(
+        "https://stylehub.delabs.io.vn", validation_alias="STYLEHUB_API_URL"
+    )
     stylehub_api_key: SecretStr | None = Field(None, validation_alias="STYLEHUB_API_KEY")
 
 

@@ -33,7 +33,7 @@ runs = import_module("src.3_storage.runs")
 run_dbt = import_module("src.4_transform.run_dbt")
 run_daily = import_module("src.4_transform.run_daily")
 api = import_module("src.1_source.api")
-api_products = import_module("src.2_ingestion.api_products")
+api_users = import_module("src.2_ingestion.api_users")
 
 
 @pytest.fixture
@@ -357,29 +357,25 @@ def test_postgres_incremental_ingest(cfg, monkeypatch) -> None:
     assert stamp.field("t").type.unit == "us"
 
 
-def api_product(i: int, **changes: object) -> dict:
-    row = {
-        "id": i,
-        "cost": 0.1,
-        "category": "Jeans",
-        "name": f"p{i}",
-        "brand": None,
-        "retail_price": "19.99",
-        "department": "Men",
-        "sku": f"S{i}",
-        "created_at": "2025-01-01T00:00:00Z",
-        "updated_at": "2026-10-01T01:39:45.009455+00:00",
-    }
+def api_user(i: int, **changes: object) -> dict:
+    row = {name: f"{name}{i}" for name in api_users.SCHEMA.names}
+    row |= {"id": i, "age": 30, "latitude": 10.7769, "longitude": 106.7009}
+    row |= {"created_at": "2025-01-01T09:52:01.396420", "updated_at": "2026-10-19T14:44:40.021670"}
     return row | changes
 
 
 class FakeApi:
-    """Answers like the StyleHub API: a key, then pages of 2 rows."""
+    """Answers like the StyleHub REST API: a JWT, then pages of 2 rows ordered by id."""
 
-    def __init__(self, products: list[dict], count: int | None = None, fail: int = 0) -> None:
-        self.products, self.count, self.fail = products, count, fail
+    def __init__(
+        self, pages: list[list[dict]], counts: list[int] | None = None, fail: int = 0
+    ) -> None:
+        self.reads = iter(zip(pages, counts or [None] * len(pages), strict=True))
+        self.fail = fail
         self.headers: dict = {}
         self.calls: list[tuple] = []
+        self.rows: list[dict] = []
+        self.count: int | None = None
 
     def __enter__(self) -> "FakeApi":
         return self
@@ -387,19 +383,21 @@ class FakeApi:
     def __exit__(self, *args: object) -> None:
         pass
 
+    def post(self, url: str, json: dict, timeout: int) -> NS:
+        self.calls.append(("token", json["api_key"]))
+        return NS(raise_for_status=lambda: None, json=lambda: {"access_token": "jwt"})
+
     def get(self, url: str, params: dict, timeout: int) -> NS:
         self.calls.append((url.rsplit("/", 1)[1], dict(params)))
-        if self.fail:  # the first calls hit a busy server
+        if self.fail:  # a busy server first
             self.fail -= 1
-            return NS(raise_for_status=self.raise_status(503))
-        if url.endswith("stylehub-api-keys"):
-            return NS(raise_for_status=lambda: None, json=lambda: {"api_key": "sk_new"})
+            return NS(raise_for_status=FakeApi.raise_status(503))
+        if params["page"] == 0:  # a new read of the window
+            self.rows, count = next(self.reads)
+            self.count = len(self.rows) if count is None else count
         start = params["page"] * 2
-        page = self.products[start : start + 2]
-        meta = {
-            "count": self.count or len(self.products),
-            "has_more": start + 2 < len(self.products),
-        }
+        meta = {"count": self.count, "has_more": start + 2 < len(self.rows)}
+        page = self.rows[start : start + 2]
         return NS(raise_for_status=lambda: None, json=lambda: {"meta": meta, "data": page})
 
     @staticmethod
@@ -408,58 +406,6 @@ class FakeApi:
             raise requests.HTTPError(response=NS(status_code=code))
 
         return raise_it
-
-
-def test_api_products_full_snapshot(cfg, monkeypatch) -> None:
-    gcs = FakeGCS()
-    monkeypatch.setattr(config, "gcs_client", lambda cfg: gcs)
-    fake = FakeApi([api_product(i) for i in range(1, 6)], fail=1)
-    monkeypatch.setattr(api.requests, "Session", lambda: fake)
-    monkeypatch.setattr(api.retry, "call_with_retry", lambda f: retry_once(f))
-    cfg = cfg.model_copy(update={"stylehub_api_url": "https://api.test/v1/"})
-
-    assert api_products.ingest("2026-10-20", cfg) == 5
-    assert fake.headers["Authorization"] == "Bearer sk_new"  # no key in .env: asked the API
-    pages = [p["page"] for name, p in fake.calls if name == "stylehub-products"]
-    assert pages == [0, 1, 2]  # page counts from 0 until has_more is false
-    assert fake.calls[2] == (  # 0: busy server, 1: key again
-        "stylehub-products",
-        {"updated_from": "2025-01-01", "page": 0, "page_size": 1000},
-    )
-    ((path, blob),) = gcs.uploaded.items()
-    assert path.startswith("raw/stylehub/api_products/date=2026-10-20/batch_id=")
-    table = pq.read_table(io.BytesIO(blob.data))
-    assert str(table.schema.field("cost").type) == "decimal128(38, 9)"
-    assert table.column("cost")[0].as_py() == Decimal("0.1")  # never 0.1000000000000000055
-    assert table.column("_source")[0].as_py() == "api"
-
-    # The key from .env is used as is.
-    fake = FakeApi([api_product(1)])
-    monkeypatch.setattr(api.requests, "Session", lambda: fake)
-    keyed = cfg.model_copy(update={"stylehub_api_key": SecretStr("sk_env")})
-    assert api_products.ingest("2026-10-20", keyed) == 1
-    assert fake.headers["Authorization"] == "Bearer sk_env"
-    assert [name for name, _ in fake.calls] == ["stylehub-products"]
-
-    # A row read twice while paging, or a short read, stops the load.
-    fake = FakeApi([api_product(1), api_product(1)])
-    monkeypatch.setattr(api.requests, "Session", lambda: fake)
-    with pytest.raises(api_products.SourceRowMismatch, match="1 ids"):
-        api_products.ingest("2026-10-20", keyed)
-    monkeypatch.setattr(api.requests, "Session", lambda: FakeApi([api_product(1)], count=9))
-    with pytest.raises(api_products.SourceRowMismatch, match="reports 9"):
-        api_products.ingest("2026-10-20", keyed)
-
-    # has_more that never ends.
-    monkeypatch.setattr(api_products, "MAX_PAGES", 1)
-    monkeypatch.setattr(
-        api.requests, "Session", lambda: FakeApi([api_product(i) for i in range(3)])
-    )
-    with pytest.raises(RuntimeError, match="still has_more"):
-        api_products.ingest("2026-10-20", keyed)
-
-    with pytest.raises(RuntimeError, match="STYLEHUB_API_URL"):
-        api.base_url(cfg.model_copy(update={"stylehub_api_url": None}))
 
 
 def retry_once(func):
@@ -472,12 +418,70 @@ def retry_once(func):
         return func()
 
 
-def test_api_products_schema(caplog) -> None:
-    with pytest.raises(schema_check.SchemaError, match="stopped sending cost"):
-        api_products.to_frame([{k: v for k, v in api_product(1).items() if k != "cost"}])
-    df = api_products.to_frame([api_product(1, color="red", cost=None)])
-    assert list(df.columns) == api_products.SCHEMA.names
-    assert df["cost"][0] is None
+def test_api_users_incremental(cfg, monkeypatch) -> None:
+    gcs = FakeGCS()
+    monkeypatch.setattr(config, "gcs_client", lambda cfg: gcs)
+    monkeypatch.setattr(api.retry, "call_with_retry", retry_once)
+    watermark = {"value": None}  # no Bronze table yet: first, full load
+    monkeypatch.setattr(api_users.bq, "newest_before", lambda *a: watermark["value"])
+    cfg = cfg.model_copy(update={"stylehub_api_key": SecretStr("sk_test")})
+    fake = FakeApi([[api_user(i) for i in range(1, 6)]], fail=1)
+    monkeypatch.setattr(api.requests, "Session", lambda: fake)
+
+    assert api_users.ingest("2026-10-19", cfg) == 5
+    assert fake.calls[0] == ("token", "sk_test")
+    assert fake.headers["Authorization"] == "Bearer jwt"
+    reads = [p for name, p in fake.calls if name == "users"]
+    assert [p["page"] for p in reads] == [0, 0, 1, 2]  # 503 retried, then page 0 to has_more false
+    assert reads[0] == {
+        "updated_from": "2025-01-01",
+        "updated_to": "2026-10-19",
+        "page": 0,
+        "page_size": 10_000,
+    }
+    ((path, blob),) = gcs.uploaded.items()
+    assert path.startswith("raw/stylehub/api_users/date=2026-10-19/batch_id=")
+    table = pq.read_table(io.BytesIO(blob.data))
+    assert str(table.schema.field("updated_at").type) == "timestamp[us]"  # BigQuery TIMESTAMP
+    assert table.column("_source")[0].as_py() == "api"
+
+    # Next day: watermark minus one day; a user updated during the read shifts the
+    # pages (one row read twice), so the window is read again.
+    watermark["value"] = datetime.fromisoformat("2026-10-19T14:44:40")
+    shifted = [api_user(1), api_user(2), api_user(2)]
+    fake = FakeApi([shifted, [api_user(1), api_user(2)]], counts=[3, 2])
+    monkeypatch.setattr(api.requests, "Session", lambda: fake)
+    gcs.uploaded.clear()
+    assert api_users.ingest("2026-10-20", cfg) == 2
+    reads = [p for name, p in fake.calls if name == "users"]
+    assert reads[0]["updated_from"] == "2026-10-18"
+    assert len(gcs.uploaded) == 1
+
+    # Still wrong after every attempt: stop; nothing changed: no file.
+    monkeypatch.setattr(api_users, "READ_ATTEMPTS", 1)
+    fake = FakeApi([[api_user(1)]], counts=[9])
+    monkeypatch.setattr(api.requests, "Session", lambda: fake)
+    with pytest.raises(api_users.SourceRowMismatch, match="after 1 reads"):
+        api_users.ingest("2026-10-20", cfg)
+    monkeypatch.setattr(api.requests, "Session", lambda: FakeApi([[]]))
+    gcs.uploaded.clear()
+    assert api_users.ingest("2026-10-20", cfg) == 0
+    assert not gcs.uploaded
+
+    # has_more that never ends; no key.
+    monkeypatch.setattr(api_users, "MAX_PAGES", 1)
+    monkeypatch.setattr(api.requests, "Session", lambda: FakeApi([[api_user(i) for i in range(3)]]))
+    with pytest.raises(RuntimeError, match="still has_more"):
+        api_users.ingest("2026-10-20", cfg)
+    with pytest.raises(RuntimeError, match="STYLEHUB_API_KEY"):
+        api.open_session(cfg.model_copy(update={"stylehub_api_key": None}))
+
+
+def test_api_users_schema(caplog) -> None:
+    with pytest.raises(schema_check.SchemaError, match="stopped sending email"):
+        api_users.to_frame([{k: v for k, v in api_user(1).items() if k != "email"}])
+    df = api_users.to_frame([api_user(1, color="red")])
+    assert list(df.columns) == api_users.SCHEMA.names
     assert "new API fields, not loaded: color" in caplog.text
 
 
@@ -616,7 +620,7 @@ def test_run_daily_runs_every_step(cfg, monkeypatch) -> None:
     monkeypatch.setattr(run_daily.runs, "record_run", lambda *a: recorded.append((a[1], a[3])))
     monkeypatch.setattr(run_daily.csv_tables, "ingest_table", lambda t, d, c: 1)
     monkeypatch.setattr(run_daily.pg_tables, "ingest_table", lambda t, d, c: 2)
-    monkeypatch.setattr(run_daily.api_products, "ingest", lambda d, c: 4)
+    monkeypatch.setattr(run_daily.api_users, "ingest", lambda d, c: 4)
     monkeypatch.setattr(run_daily.events_bronze, "events_table_exists", lambda c: True)
     monkeypatch.setattr(run_daily.load_bronze, "load_day", lambda *a, **k: 3)
     monkeypatch.setattr(run_daily.run_dbt, "run_dbt", lambda layer: {"layer": layer})
@@ -637,13 +641,7 @@ def test_run_daily_records_failures(cfg, monkeypatch) -> None:
     monkeypatch.setattr(run_daily.load_bronze, "load_day", lambda *a, **k: 0)
     with pytest.raises(RuntimeError, match="no Raw file"):
         run_daily.run_step("2026-10-01", "bronze", "run-3")
-    with pytest.raises(RuntimeError, match="did api_ingest run"):
-        run_daily.run_step("2026-10-01", "api_bronze", "run-4")
-    assert [(r[0], r[2]) for r in recorded] == [
-        ("bronze", "failed"),
-        ("bronze", "failed"),
-        ("api_bronze", "failed"),
-    ]
+    assert [(r[0], r[2]) for r in recorded] == [("bronze", "failed"), ("bronze", "failed")]
 
 
 # dags -----------------------------------------------------------------------------------
