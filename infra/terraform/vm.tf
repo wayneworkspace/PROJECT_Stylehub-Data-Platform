@@ -36,14 +36,39 @@ resource "google_compute_instance" "airflow" {
     enable-oslogin = "TRUE"
   }
 
-  # replace: a Windows checkout has CRLF line ends, which bash cannot run.
-  metadata_startup_script = replace(templatefile("${path.module}/vm_startup.sh.tftpl", {
-    project_id        = var.project_id
-    secret_id         = google_secret_manager_secret.dotenv.secret_id
-    github_repository = var.github_repository
-  }), "\r", "")
+  # Docker, secrets and the Airflow stack are set up by Ansible:
+  #   infra/scripts/configure_vm.sh (playbook infra/ansible/airflow_vm.yml)
 
   depends_on = [google_project_service.apis, google_secret_manager_secret_iam_member.pipeline_reads_dotenv]
+}
+
+# Weekly snapshot of the boot disk, two kept: a broken VM is restored in minutes.
+resource "google_compute_resource_policy" "weekly_snapshot" {
+  count  = var.enable_airflow_vm ? 1 : 0
+  name   = "stylehub-airflow-weekly"
+  region = var.region
+
+  snapshot_schedule_policy {
+    schedule {
+      weekly_schedule {
+        day_of_weeks {
+          day        = "SUNDAY"
+          start_time = "04:00" # UTC, after the 02:00 run
+        }
+      }
+    }
+    retention_policy {
+      max_retention_days    = 15
+      on_source_disk_delete = "KEEP_AUTO_SNAPSHOTS"
+    }
+  }
+}
+
+resource "google_compute_disk_resource_policy_attachment" "weekly_snapshot" {
+  count = var.enable_airflow_vm ? 1 : 0
+  name  = google_compute_resource_policy.weekly_snapshot[0].name
+  disk  = google_compute_instance.airflow[0].name
+  zone  = var.vm_zone
 }
 
 # SSH only from Google's IAP range; the Airflow port stays on localhost.

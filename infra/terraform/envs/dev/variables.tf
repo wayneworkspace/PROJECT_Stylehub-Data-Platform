@@ -16,7 +16,7 @@ variable "editors" {
 }
 
 variable "table_expiration_days" {
-  description = "Dev tables delete themselves after this many days."
+  description = "Staging tables delete themselves after this many days; CD rebuilds them on each deploy."
   type        = number
-  default     = 14
+  default     = 1
 }

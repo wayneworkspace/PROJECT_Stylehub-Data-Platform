@@ -20,6 +20,11 @@ output "service_accounts" {
   value       = { for name, account in google_service_account.this : name => account.email }
 }
 
+output "dashboard_url" {
+  description = "Cloud Run dashboard; open it through: gcloud run services proxy stylehub-dashboard"
+  value       = google_cloud_run_v2_service.dashboard.uri
+}
+
 output "image_repository" {
   value = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.images.repository_id}"
 }

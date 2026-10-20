@@ -11,6 +11,8 @@ resource "google_project_service" "apis" {
     "monitoring.googleapis.com",
     "secretmanager.googleapis.com",
     "compute.googleapis.com",
+    "run.googleapis.com",
+    "billingbudgets.googleapis.com",
   ])
   service            = each.value
   disable_on_destroy = false # turning an API off can break other things
@@ -100,6 +102,23 @@ resource "google_artifact_registry_repository" "images" {
   location      = var.region
   format        = "DOCKER"
   description   = "StyleHub Airflow and dashboard images; tags are commit ids."
+
+  # 0.5 GB is free and one Airflow image is about 1.6 GB, so keep only the newest.
+  cleanup_policy_dry_run = false
+  cleanup_policies {
+    id     = "keep-newest"
+    action = "KEEP"
+    most_recent_versions {
+      keep_count = var.images_to_keep
+    }
+  }
+  cleanup_policies {
+    id     = "delete-older"
+    action = "DELETE"
+    condition {
+      older_than = "86400s" # anything not kept above and older than a day
+    }
+  }
 
   depends_on = [google_project_service.apis]
 }

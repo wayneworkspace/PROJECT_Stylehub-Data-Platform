@@ -92,6 +92,36 @@ variable "alert_notification_channels" {
   default     = []
 }
 
+variable "images_to_keep" {
+  description = "Newest images kept per name in Artifact Registry; 0.5 GB of storage is free."
+  type        = number
+  default     = 2
+}
+
+variable "billing_account_id" {
+  description = "Billing account for the budget alert, e.g. 012345-ABCDEF-678901; empty skips the budget (BILLING_ACCOUNT_ID)."
+  type        = string
+  default     = ""
+}
+
+variable "budget_usd" {
+  description = "Monthly budget; e-mails go to billing admins at 50%, 90% and 100% of it."
+  type        = number
+  default     = 1
+}
+
+variable "developer_members" {
+  description = "People who may act as sa-pipeline from a laptop instead of a key file, e.g. [\"user:you@example.com\"]."
+  type        = list(string)
+  default     = []
+}
+
+variable "dashboard_placeholder_image" {
+  description = "Image the Cloud Run dashboard starts with; CD replaces it with the tested dashboard image."
+  type        = string
+  default     = "us-docker.pkg.dev/cloudrun/container/hello"
+}
+
 variable "enable_airflow_vm" {
   description = "Create the Airflow VM (about 25 USD a month). Set only by the GitHub variable ENABLE_AIRFLOW_VM, never in tfvars, or the next CD apply removes the VM."
   type        = bool
