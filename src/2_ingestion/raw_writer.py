@@ -50,9 +50,9 @@ def write_raw(
     return f"gs://{bucket.name}/{path}"
 
 
-def delete_batch(table: str, data_date: str, batch_id: str, cfg: config.Settings) -> None:
-    """Remove every file of a batch, so a failed run never leaves a partial batch."""
+def mark_batch_complete(table: str, data_date: str, batch_id: str, cfg: config.Settings) -> None:
+    """Write _SUCCESS after the last part file; Bronze ignores part batches without it."""
     bucket = config.gcs_client(cfg).bucket(cfg.bucket)
-    prefix = f"{cfg.raw_prefix}/{table}/date={data_date}/batch_id={batch_id}/"
-    for blob in retry.call_with_retry(lambda: list(bucket.list_blobs(prefix=prefix))):
-        retry.call_with_retry(blob.delete)
+    path = f"{cfg.raw_prefix}/{table}/date={data_date}/batch_id={batch_id}/_SUCCESS"
+    blob = bucket.blob(path)
+    retry.call_with_retry(lambda: blob.upload_from_string(b"", content_type="text/plain"))

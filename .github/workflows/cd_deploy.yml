@@ -141,6 +141,10 @@ jobs:
   dbt-run:
     name: dbt build on production
     needs: dbt-staging
+    # Same group as pipeline.yml and restate.yml: one build of the real tables at a time.
+    concurrency:
+      group: pipeline
+      cancel-in-progress: false
     if: >-
       !cancelled() && needs.dbt-staging.result == 'success' &&
       vars.WIF_PIPELINE_SERVICE_ACCOUNT != ''

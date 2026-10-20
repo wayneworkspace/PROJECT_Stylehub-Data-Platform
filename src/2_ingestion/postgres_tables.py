@@ -90,8 +90,9 @@ def extract_to_raw(
 ) -> int:
     """Stream the window in chunks into one Raw batch; return the rows written.
 
-    One consistent snapshot, checked against the source row count. A failed
-    attempt deletes its files; a retry writes a new, later batch.
+    One consistent snapshot, checked against the source row count. _SUCCESS is
+    written last, so a failed attempt is never loaded (the pipeline account may
+    not delete Raw files); a retry writes a new, later batch.
     """
     if table not in PG_TABLES:
         raise ValueError(f"No Postgres table configured: {table}")
@@ -100,41 +101,34 @@ def extract_to_raw(
 
     def read() -> int:
         batch_id, written = utils.new_id(), 0
-        try:
-            with config.pg_engine(cfg).connect() as conn:
-                # stream_results: a server-side cursor sends one chunk at a time.
-                conn = conn.execution_options(
-                    isolation_level="REPEATABLE READ", stream_results=True
+        with config.pg_engine(cfg).connect() as conn:
+            # stream_results: a server-side cursor sends one chunk at a time.
+            conn = conn.execution_options(isolation_level="REPEATABLE READ", stream_results=True)
+            # Safe: the table name comes from PG_TABLES.
+            count = text(f'SELECT COUNT(*) FROM "{table}" WHERE {where}')  # noqa: S608
+            expected = conn.execute(count, params).scalar_one()
+            query = text(f'SELECT * FROM "{table}" WHERE {where}')  # noqa: S608
+            chunks = pd.read_sql(
+                query, conn, params=params, coerce_float=False, chunksize=CHUNK_ROWS
+            )
+            for part, chunk in enumerate(chunks):
+                if chunk.empty:  # pandas yields one empty chunk when nothing matched
+                    continue
+                raw_writer.write_raw(
+                    chunk,
+                    raw_name(table),
+                    data_date,
+                    cfg,
+                    source="postgres",
+                    batch_id=batch_id,
+                    part=f"part_{part:05d}",
+                    schema=schema,
                 )
-                # Safe: the table name comes from PG_TABLES.
-                count = text(f'SELECT COUNT(*) FROM "{table}" WHERE {where}')  # noqa: S608
-                expected = conn.execute(count, params).scalar_one()
-                query = text(f'SELECT * FROM "{table}" WHERE {where}')  # noqa: S608
-                chunks = pd.read_sql(
-                    query, conn, params=params, coerce_float=False, chunksize=CHUNK_ROWS
-                )
-                for part, chunk in enumerate(chunks):
-                    if chunk.empty:  # pandas yields one empty chunk when nothing matched
-                        continue
-                    raw_writer.write_raw(
-                        chunk,
-                        raw_name(table),
-                        data_date,
-                        cfg,
-                        source="postgres",
-                        batch_id=batch_id,
-                        part=f"part_{part:05d}",
-                        schema=schema,
-                    )
-                    written += len(chunk)
-            if written != expected:
-                raise SourceRowMismatch(f"{table}: read {written} rows, the source has {expected}")
-        except Exception:
-            try:
-                raw_writer.delete_batch(raw_name(table), data_date, batch_id, cfg)
-            except Exception as cleanup_error:  # keep the read error, the real cause
-                log.warning("Could not delete partial batch %s: %s", batch_id, cleanup_error)
-            raise
+                written += len(chunk)
+        if written != expected:
+            raise SourceRowMismatch(f"{table}: read {written} rows, the source has {expected}")
+        if written:
+            raw_writer.mark_batch_complete(raw_name(table), data_date, batch_id, cfg)
         return written
 
     return retry.call_with_retry(read)

@@ -89,7 +89,7 @@ docker compose --env-file secrets/.env --profile airflow --profile serving ps   
 | Airflow | `http://localhost:<AIRFLOW_WEB_PORT>` | `AIRFLOW_ADMIN_USER` / `AIRFLOW_ADMIN_PASSWORD` |
 | Dashboard | `http://localhost:8501` | none (localhost only) |
 
-For a local run, unpause `stylehub_daily` in the Airflow UI (or `MSYS_NO_PATHCONV=1 docker compose --env-file secrets/.env --profile airflow exec -T airflow-scheduler airflow dags unpause stylehub_daily`).
+For a local run, trigger `stylehub_daily` by hand (section 2.3) and keep it paused: GitHub Actions runs the same steps on the same tables at 02:00 UTC, and two runs at once clash.
 
 ## 2. Daily operation
 
@@ -104,7 +104,7 @@ GitHub Actions runs `.github/workflows/pipeline.yml` at 02:00 UTC (09:00 Vietnam
 | 3. Data freshness | Dashboard "Data freshness" | No table older than 26 hours |
 | 4. dbt warnings | Log of the Pipeline run, steps "silver" and "gold" | `ERROR=0`; only the known item-order WARN |
 
-Open the Cloud Run dashboard with `gcloud run services proxy stylehub-dashboard --region asia-southeast1 --port 8501`, then `http://localhost:8501`. GitHub stops scheduled workflows after 60 days without a commit; re-enable them in the Actions tab.
+Open the Cloud Run dashboard with `gcloud run services proxy stylehub-dashboard --region asia-southeast1 --port 8501`, then `http://localhost:8501`. GitHub stops scheduled workflows (also the watchdog) after 60 days without a commit; merging the weekly Dependabot pull requests keeps the repository active. If it happened, re-enable both in the Actions tab.
 
 ### 2.2 When a run failed
 
@@ -117,8 +117,8 @@ Every step is safe to rerun: Raw is append-only, Bronze replaces its day partiti
 ### 2.3 Run or rerun past days
 
 ```bash
-gh workflow run pipeline.yml -f data_date=2026-10-16          # one data day
-for d in 2026-10-10 2026-10-11 2026-10-12; do gh workflow run pipeline.yml -f data_date=$d; done   # runs one after another
+gh workflow run pipeline.yml -f data_date=2026-10-16                        # one data day
+gh workflow run pipeline.yml -f data_date=2026-10-10 -f to_date=2026-10-16   # a range, up to 14 days, in one run
 ```
 
 To publish a corrected month: `gh workflow run restate.yml -f months=2026-09-01 -f note="September returns"`, then approve the `production` environment on the run page.

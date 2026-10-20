@@ -30,7 +30,7 @@ Each row: the message you see, why it happens, and the fix. Commands run from th
 | Error message | Cause | Fix |
 |---|---|---|
 | `airflow-init didn't complete successfully` + `No module named 'config'` | Logging config path not on `sys.path` | Keep `PYTHONPATH: /opt/airflow` in `docker-compose.yaml` |
-| `ModuleNotFoundError: No module named 'colorlog'` in a task | `requirements.txt` older than `uv.lock` | `uv export --frozen --no-hashes --no-dev --extra dbt --no-emit-project -o requirements.txt`, rebuild |
+| `ModuleNotFoundError: No module named 'colorlog'` in a task | The image is older than `uv.lock` | Rebuild the image: `docker compose --env-file secrets/.env --profile airflow build` |
 | `No module named 'pendulum'` before each task | Pipeline venv has no pendulum; harmless | Ignore; the task still runs |
 | `set AIRFLOW_..._PASSWORD in secrets/.env` | An Airflow secret is empty | Fill the four `AIRFLOW_` values from `.env.example` |
 | `ports are not available` | Port 8080 or 8501 already used | Set `AIRFLOW_WEB_PORT=8081` in `secrets/.env` |
@@ -48,7 +48,6 @@ Each row: the message you see, why it happens, and the fix. Commands run from th
 | `dbt found 1 package(s) specified in packages.yml, but only 0 package(s) installed` | `dbt deps` was not run | `uv run dbt deps --project-dir dbt_project --profiles-dir dbt_project` (the image and CI run it) |
 | `relationships_pg_dim_users_country__country__ref_country_regions_` WARN | A new country appeared | Add it to `dbt_project/seeds/country_regions.csv` |
 | `log-path config in dbt_project.yml has been deprecated` | dbt 1.12 wants a CLI flag | Pass `--log-path logs/dbt`; never set it in the YAML |
-| `requirements.txt matches uv.lock` step fails | A dependency changed without export | Run the `uv export` command above and commit |
 | `Required test coverage of 100.0% not reached` | New code without a test | Add a test with the fakes in `tests/test_stages.py` |
 | Coverage misses files that were never imported | Namespace packages (no `__init__.py`) | Keep `include_namespace_packages = true` in `pyproject.toml` |
 | `TypeError: DagBag.__init__() got an unexpected keyword argument 'include_examples'` | Airflow 3 removed the argument | Call `DagBag(dag_folder)` only |

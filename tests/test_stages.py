@@ -120,9 +120,6 @@ class FakeBlob:
     def open(self, mode: str) -> io.BytesIO:
         return io.BytesIO(self.data)
 
-    def delete(self) -> None:
-        self.data = None  # FakeGCS.bucket().list_blobs skips deleted blobs
-
 
 class Listing(list):
     prefixes: ClassVar[set[str]] = set()
@@ -138,13 +135,10 @@ class FakeGCS:
         def blob(path: str) -> FakeBlob:
             return self.uploaded.setdefault(path, FakeBlob(path))
 
-        def list_blobs(prefix: str) -> list[FakeBlob]:
-            return [b for p, b in self.uploaded.items() if p.startswith(prefix) and b.data]
-
-        return NS(name=name, blob=blob, list_blobs=list_blobs)
+        return NS(name=name, blob=blob)
 
     def list_blobs(self, bucket: str, prefix: str, delimiter: str | None = None) -> Listing:
-        listing = Listing(() if delimiter else self.blobs)
+        listing = Listing(b for b in self.blobs if b.name.startswith(prefix))
         listing.prefixes = self.folders
         return listing
 
@@ -321,9 +315,14 @@ def test_postgres_incremental_ingest(cfg, monkeypatch) -> None:
     assert pg_tables.ingest_table("orders", "2026-10-15", cfg) == 3
     assert asked["chunksize"] == pg_tables.CHUNK_ROWS
     assert "_PARTITIONDATE < DATE '2026-10-15'" in client.calls[0][1]
-    paths = sorted(gcs.uploaded)
-    assert [p.rsplit("/", 1)[1] for p in paths] == ["part_00000.parquet", "part_00001.parquet"]
-    assert paths[0].startswith("raw/stylehub/pg_orders/date=2026-10-15/batch_id=")
+    files = sorted(gcs.uploaded)
+    assert [p.rsplit("/", 1)[1] for p in files] == [
+        "_SUCCESS",
+        "part_00000.parquet",
+        "part_00001.parquet",
+    ]
+    assert files[0].startswith("raw/stylehub/pg_orders/date=2026-10-15/batch_id=")
+    paths = files[1:]
     # Every part has the same types, even a column that is NULL in one chunk.
     types = {
         str(pq.read_schema(io.BytesIO(gcs.uploaded[p].data)).field("total_amount").type)
@@ -338,21 +337,13 @@ def test_postgres_incremental_ingest(cfg, monkeypatch) -> None:
     assert pg_tables.ingest_table("orders", "2026-10-15", cfg) == 0
     assert not gcs.uploaded
 
-    # Fewer rows than the source count: the partial batch is deleted.
+    # Fewer rows than the source count: the part stays, but without _SUCCESS Bronze skips it.
     monkeypatch.setattr(config, "pg_engine", lambda cfg: FakePg(9))
     chunks = [pd.DataFrame({"id": [1], "total_amount": [None]})]
     end = datetime.fromisoformat("2026-10-16")
     with pytest.raises(pg_tables.SourceRowMismatch):
         pg_tables.extract_to_raw("orders", None, end, schema, "2026-10-15", cfg)
-    assert gcs.uploaded and not any(b.data for b in gcs.uploaded.values())
-
-    # The cleanup fails too: the read error still comes out, not the cleanup error.
-    def broken_cleanup(*args: object) -> None:
-        raise exceptions.Forbidden("no delete right")
-
-    monkeypatch.setattr(pg_tables.raw_writer, "delete_batch", broken_cleanup)
-    with pytest.raises(pg_tables.SourceRowMismatch):
-        pg_tables.extract_to_raw("orders", None, end, schema, "2026-10-15", cfg)
+    assert list(gcs.uploaded) and not any(p.endswith("_SUCCESS") for p in gcs.uploaded)
     with pytest.raises(ValueError, match="No Postgres table"):
         pg_tables.extract_to_raw("events", None, end, schema, "2026-10-15", cfg)
     with pytest.raises(schema_check.SchemaError, match="jsonb"):
@@ -394,13 +385,19 @@ def test_events_table_exists(cfg, monkeypatch) -> None:
 
 def test_load_day_write_audit_publish(cfg, monkeypatch) -> None:
     prefix = "raw/stylehub/orders/date=2026-10-01/"
-    folders = {f"{prefix}batch_id=1/", f"{prefix}batch_id=2/"}
-    gcs = FakeGCS(folders, [FakeBlob("a.parquet", parquet(3))])
+    gcs = FakeGCS(
+        blobs=[
+            FakeBlob(f"{prefix}batch_id=1/orders.parquet", parquet(5)),
+            FakeBlob(f"{prefix}batch_id=2/orders.parquet", parquet(3)),  # newest, loaded
+            FakeBlob(f"{prefix}batch_id=3/part_00000.parquet", parquet(1)),  # unfinished
+        ]
+    )
     client = FakeBQ({"proj.stylehub_bronze._stg_orders": NS(schema=[])})
     client.loaded_rows = 3
     monkeypatch.setattr(config, "gcs_client", lambda cfg: gcs)
     monkeypatch.setattr(config, "bq_client", lambda cfg: client)
     assert load_bronze.load_day("orders", "2026-10-01", cfg, keep_days=None) == 3
+    assert ("load", f"gs://bucket/{prefix}batch_id=2/*.parquet") in client.calls
     assert ("create", "orders", None) in client.calls
     assert ("copy", "proj.stylehub_bronze.orders$20261001", "asia-southeast1") in client.calls
 

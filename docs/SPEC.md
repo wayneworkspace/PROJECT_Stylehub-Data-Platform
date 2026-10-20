@@ -119,7 +119,7 @@
 | DAG integrity | pytest inside the Airflow image | DAG loads, task order checked |
 | dbt project | `dbt parse` without a warehouse connection | Must parse in CI |
 | Terraform | `fmt`, `validate`, `plan` on pull requests | Plan reviewed before apply |
-| Dependencies | `requirements.txt` regenerated from `uv.lock` | CI fails when they differ |
+| Dependencies | One lock file, `uv.lock`; the Airflow image exports it at build time | Nothing to keep in sync |
 
 ## Logging
 

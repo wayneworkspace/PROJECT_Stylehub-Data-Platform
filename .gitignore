@@ -1,4 +1,6 @@
 .venv/
+# Made from uv.lock inside the Dockerfile; never committed.
+requirements.txt
 __pycache__/
 *.pyc
 .env

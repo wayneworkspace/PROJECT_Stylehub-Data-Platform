@@ -9,7 +9,11 @@ on:
   workflow_dispatch:
     inputs:
       data_date:
-        description: "Data day YYYY-MM-DD (backfill); empty is yesterday in UTC"
+        description: "First data day YYYY-MM-DD (backfill); empty is yesterday in UTC"
+        required: false
+        type: string
+      to_date:
+        description: "Last data day YYYY-MM-DD for a range (at most 14 days); empty is data_date"
         required: false
         type: string
 
@@ -17,7 +21,9 @@ permissions:
   contents: read
   id-token: write # sign in to Google Cloud as sa-pipeline
 
-concurrency: # one run at a time; a second one waits
+# One run at a time. GitHub keeps only one waiting run per group and cancels the
+# one waiting before it, so backfill a range with to_date, never with many runs.
+concurrency:
   group: pipeline
   cancel-in-progress: false
 
@@ -34,7 +40,7 @@ jobs:
     name: Daily run
     if: vars.WIF_PIPELINE_SERVICE_ACCOUNT != ''
     runs-on: ubuntu-latest
-    timeout-minutes: 60 # a run takes about 5 minutes
+    timeout-minutes: 120 # a day takes about 5 minutes; a 14-day range fits
     env:
       GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
       GCS_BUCKET: ${{ vars.GCS_BUCKET }}
@@ -44,6 +50,7 @@ jobs:
       DBT_USE_COLORS: "false"
       RUN_ID: gha-${{ github.run_id }}
       INPUT_DATE: ${{ inputs.data_date }}
+      INPUT_TO: ${{ inputs.to_date }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
@@ -55,25 +62,42 @@ jobs:
         with:
           workload_identity_provider: ${{ vars.WIF_PROVIDER }}
           service_account: ${{ vars.WIF_PIPELINE_SERVICE_ACCOUNT }}
-      - name: Pick the data day
+      - name: Pick the data days
         run: |
-          DATA_DATE="${INPUT_DATE:-$(date -u -d yesterday +%F)}"
-          echo "DATA_DATE=$DATA_DATE" >> "$GITHUB_ENV"
-          echo "Data day: $DATA_DATE, run $RUN_ID" >> "$GITHUB_STEP_SUMMARY"
+          FIRST="$(date -u -d "${INPUT_DATE:-yesterday}" +%F)"  # also rejects a bad date
+          LAST="$(date -u -d "${INPUT_TO:-$FIRST}" +%F)"
+          DAYS=""
+          day="$FIRST"
+          while [[ ! "$day" > "$LAST" ]]; do
+            DAYS="$DAYS $day"
+            day="$(date -u -d "$day + 1 day" +%F)"
+          done
+          count=$(wc -w <<< "$DAYS")
+          if (( count == 0 || count > 14 )); then
+            echo "::error::Give 1 to 14 days; got $count from $FIRST to $LAST"
+            exit 1
+          fi
+          echo "DAYS=$DAYS" >> "$GITHUB_ENV"
+          echo "DATA_DATE=$LAST" >> "$GITHUB_ENV"  # freshness and the alert use the last day
+          echo "Data days:$DAYS (run $RUN_ID)" >> "$GITHUB_STEP_SUMMARY"
       - name: Install the pipeline
         run: |
           uv sync --frozen --extra dbt
           uv run dbt deps --project-dir dbt_project --profiles-dir dbt_project --log-path logs/dbt
       - name: Course tables branch
         run: |
-          for step in $CSV_STEPS; do
-            uv run python -m src.4_transform.run_daily "$DATA_DATE" "$step" "$RUN_ID"
+          for day in $DAYS; do
+            for step in $CSV_STEPS; do
+              uv run python -m src.4_transform.run_daily "$day" "$step" "$RUN_ID"
+            done
           done
       - name: Postgres branch
         if: env.PG_STEPS != ''
         run: |
-          for step in $PG_STEPS; do
-            uv run python -m src.4_transform.run_daily "$DATA_DATE" "$step" "$RUN_ID"
+          for day in $DAYS; do
+            for step in $PG_STEPS; do
+              uv run python -m src.4_transform.run_daily "$day" "$step" "$RUN_ID"
+            done
           done
       - name: Freshness of the Bronze tables
         run: uv run python -m src.5_serving.freshness "$DATA_DATE" "$RUN_ID"

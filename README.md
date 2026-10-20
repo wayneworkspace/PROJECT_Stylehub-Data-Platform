@@ -116,7 +116,7 @@ uv run pytest
 uvx pre-commit run --all-files
 ```
 
-* **CI pipeline (`ci_test.yml`):** pre-commit (ruff, gitleaks), pytest with 100% coverage, `requirements.txt` in sync with `uv.lock`, `dbt parse`, SQLFluff, pip-audit, Terraform `fmt`, `validate`, tflint, checkov and `plan` (prod and dev), both Docker images with layer caching, a Trivy scan of the dashboard image, and the DAG test inside the Airflow image. Required for every pull request to `main`.
+* **CI pipeline (`ci_test.yml`):** pre-commit (ruff, gitleaks), pytest with 100% coverage, `dbt parse`, SQLFluff, pip-audit, Terraform `fmt`, `validate`, tflint, checkov and `plan` (prod and dev), both Docker images with layer caching, a Trivy scan of the dashboard image, and the DAG test inside the Airflow image. Required for every pull request to `main`.
 * **CD pipeline (`cd_deploy.yml`):** after CI passes on `main`, applies Terraform (prod and dev), pushes the tested dashboard image (tags: commit id and `main`), runs `dbt build` on staging, then on production, then puts that dashboard image on Cloud Run.
 * **Other workflows:** `pipeline.yml` (daily run, backfills), `watchdog.yml` (alert when the run did not happen), `restate.yml` (publish a corrected month after approval). CI, CD and run failures post to Discord. Dependabot opens weekly update pull requests.
 

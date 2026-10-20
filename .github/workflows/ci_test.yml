@@ -49,10 +49,6 @@ jobs:
         run: uv sync --frozen --extra dev --extra dbt --extra serving
       - name: Unit tests with 100% coverage
         run: uv run pytest -q
-      - name: requirements.txt matches uv.lock
-        run: |
-          uv export --frozen --no-hashes --no-dev --extra dbt --no-emit-project -o requirements.txt
-          git diff --exit-code requirements.txt
       - name: dbt parse (no BigQuery connection)
         run: |
           uv run dbt deps --project-dir dbt_project --profiles-dir dbt_project --log-path logs/dbt
@@ -62,8 +58,11 @@ jobs:
           GCS_BUCKET: ci-dummy-bucket
       - name: SQL lint
         run: uv run sqlfluff lint dbt_project/models dbt_project/macros dbt_project/tests include/sql
-      - name: Known vulnerabilities in the pipeline packages
-        run: uvx "pip-audit==$PIP_AUDIT_VERSION" -r requirements.txt --progress-spinner off
+      - name: Known vulnerabilities in the locked packages
+        run: |
+          uv export --frozen --no-hashes --no-dev --extra dbt --extra serving --no-emit-project \
+            -o "$RUNNER_TEMP/requirements.txt"
+          uvx "pip-audit==$PIP_AUDIT_VERSION" -r "$RUNNER_TEMP/requirements.txt" --progress-spinner off
 
   terraform:
     name: Terraform fmt, validate, plan

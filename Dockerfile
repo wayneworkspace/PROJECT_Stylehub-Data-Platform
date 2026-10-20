@@ -12,10 +12,13 @@ USER airflow
 
 RUN pip install --no-cache-dir "uv==${UV_VERSION}"
 
-# Pipeline packages first, so this layer is reused until requirements.txt changes.
-COPY --chown=airflow requirements.txt /opt/stylehub/
-RUN uv venv /opt/venv/stylehub --python /usr/local/bin/python \
-    && uv pip install --no-cache --python /opt/venv/stylehub/bin/python -r /opt/stylehub/requirements.txt
+# Pipeline packages first, so this layer is reused until uv.lock changes. The
+# package list is made from uv.lock here, so the lock file is the only source.
+COPY --chown=airflow pyproject.toml uv.lock /opt/stylehub/
+RUN cd /opt/stylehub \
+    && uv export --frozen --no-hashes --no-dev --extra dbt --no-emit-project -o requirements.txt \
+    && uv venv /opt/venv/stylehub --python /usr/local/bin/python \
+    && uv pip install --no-cache --python /opt/venv/stylehub/bin/python -r requirements.txt
 
 COPY --chown=airflow src /opt/stylehub/src
 COPY --chown=airflow include /opt/stylehub/include

@@ -39,6 +39,9 @@ with DAG(
     start_date=datetime(2026, 10, 1, tzinfo=UTC),
     # 02:00 UTC daily; the data interval keeps ds as yesterday.
     schedule=CronDataIntervalTimetable("0 2 * * *", timezone="UTC"),
+    # Production runs from .github/workflows/pipeline.yml at the same hour and on the
+    # same tables, so locally trigger this DAG by hand and never unpause it.
+    is_paused_upon_creation=True,
     catchup=False,  # old days are loaded on purpose with a backfill
     # Silver and Gold are rebuilt whole, so runs never overlap.
     max_active_runs=1,
