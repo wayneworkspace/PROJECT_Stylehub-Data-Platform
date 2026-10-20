@@ -15,10 +15,11 @@ def test_dags_load() -> None:
     bag = dagbag.DagBag(settings.DAGS_FOLDER)
     assert not bag.import_errors, bag.import_errors
     dag = bag.dags["stylehub_daily"]
-    main_dag = import_module("main_etl_dag")  # PG_ENABLED pauses the Postgres branch
+    main_dag = import_module("main_etl_dag")  # PG_ENABLED and API_ENABLED switch branches
     csv = ["ingest", "bronze", "silver", "gold"]
     pg = ["pg_ingest", "pg_bronze", "pg_reconcile", "pg_silver", "pg_gold"]
-    branches = [csv, pg] if main_dag.PG_ENABLED else [csv]
+    api = ["api_ingest", "api_bronze", "api_silver"]
+    branches = [csv] + [pg] * main_dag.PG_ENABLED + [api] * main_dag.API_ENABLED
     assert set(dag.task_ids) == {*(t for b in branches for t in b), "freshness"}
     for branch in branches:
         for before, after in pairwise(branch):

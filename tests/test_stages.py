@@ -14,8 +14,10 @@ from typing import ClassVar
 import pandas as pd
 import pyarrow.parquet as pq
 import pytest
+import requests
 import yaml
 from google.api_core import exceptions
+from pydantic import SecretStr
 
 config = import_module("src.1_source.config")
 bq = import_module("src.1_source.bq")
@@ -30,6 +32,8 @@ load_bronze = import_module("src.3_storage.load_bronze")
 runs = import_module("src.3_storage.runs")
 run_dbt = import_module("src.4_transform.run_dbt")
 run_daily = import_module("src.4_transform.run_daily")
+api = import_module("src.1_source.api")
+api_products = import_module("src.2_ingestion.api_products")
 
 
 @pytest.fixture
@@ -348,6 +352,144 @@ def test_postgres_incremental_ingest(cfg, monkeypatch) -> None:
         pg_tables.extract_to_raw("events", None, end, schema, "2026-10-15", cfg)
     with pytest.raises(schema_check.SchemaError, match="jsonb"):
         pg_tables.arrow_schema("orders", [("id", "bigint"), ("meta", "jsonb")])
+    # BigQuery loads nanosecond Parquet timestamps as INTEGER; microseconds as TIMESTAMP.
+    stamp = pg_tables.arrow_schema("orders", [("t", "timestamp without time zone")])
+    assert stamp.field("t").type.unit == "us"
+
+
+def api_product(i: int, **changes: object) -> dict:
+    row = {
+        "id": i,
+        "cost": 0.1,
+        "category": "Jeans",
+        "name": f"p{i}",
+        "brand": None,
+        "retail_price": "19.99",
+        "department": "Men",
+        "sku": f"S{i}",
+        "created_at": "2025-01-01T00:00:00Z",
+        "updated_at": "2026-10-01T01:39:45.009455+00:00",
+    }
+    return row | changes
+
+
+class FakeApi:
+    """Answers like the StyleHub API: a key, then pages of 2 rows."""
+
+    def __init__(self, products: list[dict], count: int | None = None, fail: int = 0) -> None:
+        self.products, self.count, self.fail = products, count, fail
+        self.headers: dict = {}
+        self.calls: list[tuple] = []
+
+    def __enter__(self) -> "FakeApi":
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        pass
+
+    def get(self, url: str, params: dict, timeout: int) -> NS:
+        self.calls.append((url.rsplit("/", 1)[1], dict(params)))
+        if self.fail:  # the first calls hit a busy server
+            self.fail -= 1
+            return NS(raise_for_status=self.raise_status(503))
+        if url.endswith("stylehub-api-keys"):
+            return NS(raise_for_status=lambda: None, json=lambda: {"api_key": "sk_new"})
+        start = params["page"] * 2
+        page = self.products[start : start + 2]
+        meta = {
+            "count": self.count or len(self.products),
+            "has_more": start + 2 < len(self.products),
+        }
+        return NS(raise_for_status=lambda: None, json=lambda: {"meta": meta, "data": page})
+
+    @staticmethod
+    def raise_status(code: int):
+        def raise_it() -> None:
+            raise requests.HTTPError(response=NS(status_code=code))
+
+        return raise_it
+
+
+def test_api_products_full_snapshot(cfg, monkeypatch) -> None:
+    gcs = FakeGCS()
+    monkeypatch.setattr(config, "gcs_client", lambda cfg: gcs)
+    fake = FakeApi([api_product(i) for i in range(1, 6)], fail=1)
+    monkeypatch.setattr(api.requests, "Session", lambda: fake)
+    monkeypatch.setattr(api.retry, "call_with_retry", lambda f: retry_once(f))
+    cfg = cfg.model_copy(update={"stylehub_api_url": "https://api.test/v1/"})
+
+    assert api_products.ingest("2026-10-20", cfg) == 5
+    assert fake.headers["Authorization"] == "Bearer sk_new"  # no key in .env: asked the API
+    pages = [p["page"] for name, p in fake.calls if name == "stylehub-products"]
+    assert pages == [0, 1, 2]  # page counts from 0 until has_more is false
+    assert fake.calls[2] == (  # 0: busy server, 1: key again
+        "stylehub-products",
+        {"updated_from": "2025-01-01", "page": 0, "page_size": 1000},
+    )
+    ((path, blob),) = gcs.uploaded.items()
+    assert path.startswith("raw/stylehub/api_products/date=2026-10-20/batch_id=")
+    table = pq.read_table(io.BytesIO(blob.data))
+    assert str(table.schema.field("cost").type) == "decimal128(38, 9)"
+    assert table.column("cost")[0].as_py() == Decimal("0.1")  # never 0.1000000000000000055
+    assert table.column("_source")[0].as_py() == "api"
+
+    # The key from .env is used as is.
+    fake = FakeApi([api_product(1)])
+    monkeypatch.setattr(api.requests, "Session", lambda: fake)
+    keyed = cfg.model_copy(update={"stylehub_api_key": SecretStr("sk_env")})
+    assert api_products.ingest("2026-10-20", keyed) == 1
+    assert fake.headers["Authorization"] == "Bearer sk_env"
+    assert [name for name, _ in fake.calls] == ["stylehub-products"]
+
+    # A row read twice while paging, or a short read, stops the load.
+    fake = FakeApi([api_product(1), api_product(1)])
+    monkeypatch.setattr(api.requests, "Session", lambda: fake)
+    with pytest.raises(api_products.SourceRowMismatch, match="1 ids"):
+        api_products.ingest("2026-10-20", keyed)
+    monkeypatch.setattr(api.requests, "Session", lambda: FakeApi([api_product(1)], count=9))
+    with pytest.raises(api_products.SourceRowMismatch, match="reports 9"):
+        api_products.ingest("2026-10-20", keyed)
+
+    # has_more that never ends.
+    monkeypatch.setattr(api_products, "MAX_PAGES", 1)
+    monkeypatch.setattr(
+        api.requests, "Session", lambda: FakeApi([api_product(i) for i in range(3)])
+    )
+    with pytest.raises(RuntimeError, match="still has_more"):
+        api_products.ingest("2026-10-20", keyed)
+
+    with pytest.raises(RuntimeError, match="STYLEHUB_API_URL"):
+        api.base_url(cfg.model_copy(update={"stylehub_api_url": None}))
+
+
+def retry_once(func):
+    """Like call_with_retry, without the wait: one retry of a transient error."""
+    try:
+        return func()
+    except Exception as exc:
+        if not retry.is_transient(exc):
+            raise
+        return func()
+
+
+def test_api_products_schema(caplog) -> None:
+    with pytest.raises(schema_check.SchemaError, match="stopped sending cost"):
+        api_products.to_frame([{k: v for k, v in api_product(1).items() if k != "cost"}])
+    df = api_products.to_frame([api_product(1, color="red", cost=None)])
+    assert list(df.columns) == api_products.SCHEMA.names
+    assert df["cost"][0] is None
+    assert "new API fields, not loaded: color" in caplog.text
+
+
+def test_http_errors_retry_only_when_waiting_helps() -> None:
+    def error(code: int) -> requests.HTTPError:
+        return requests.HTTPError(response=NS(status_code=code))
+
+    assert retry.is_transient(error(429))
+    assert retry.is_transient(error(503))
+    assert not retry.is_transient(error(400))
+    assert not retry.is_transient(error(401))
+    assert not retry.is_transient(requests.HTTPError())  # no response attached
 
 
 # 3_storage ------------------------------------------------------------------------------
@@ -474,6 +616,7 @@ def test_run_daily_runs_every_step(cfg, monkeypatch) -> None:
     monkeypatch.setattr(run_daily.runs, "record_run", lambda *a: recorded.append((a[1], a[3])))
     monkeypatch.setattr(run_daily.csv_tables, "ingest_table", lambda t, d, c: 1)
     monkeypatch.setattr(run_daily.pg_tables, "ingest_table", lambda t, d, c: 2)
+    monkeypatch.setattr(run_daily.api_products, "ingest", lambda d, c: 4)
     monkeypatch.setattr(run_daily.events_bronze, "events_table_exists", lambda c: True)
     monkeypatch.setattr(run_daily.load_bronze, "load_day", lambda *a, **k: 3)
     monkeypatch.setattr(run_daily.run_dbt, "run_dbt", lambda layer: {"layer": layer})
@@ -494,7 +637,13 @@ def test_run_daily_records_failures(cfg, monkeypatch) -> None:
     monkeypatch.setattr(run_daily.load_bronze, "load_day", lambda *a, **k: 0)
     with pytest.raises(RuntimeError, match="no Raw file"):
         run_daily.run_step("2026-10-01", "bronze", "run-3")
-    assert [(r[0], r[2]) for r in recorded] == [("bronze", "failed"), ("bronze", "failed")]
+    with pytest.raises(RuntimeError, match="did api_ingest run"):
+        run_daily.run_step("2026-10-01", "api_bronze", "run-4")
+    assert [(r[0], r[2]) for r in recorded] == [
+        ("bronze", "failed"),
+        ("bronze", "failed"),
+        ("api_bronze", "failed"),
+    ]
 
 
 # dags -----------------------------------------------------------------------------------
@@ -519,12 +668,14 @@ def test_scheduled_workflow_runs_the_dag_steps() -> None:
         for node in tree.body
         if isinstance(node, ast.Assign)
         and isinstance(node.targets[0], ast.Name)
-        and node.targets[0].id in {"CSV_STEPS", "PG_STEPS", "PG_ENABLED"}
+        and node.targets[0].id
+        in {"CSV_STEPS", "PG_STEPS", "API_STEPS", "PG_ENABLED", "API_ENABLED"}
     }
     workflow = yaml.safe_load((config.ROOT / ".github/workflows/pipeline.yml").read_text())
     assert workflow["env"]["CSV_STEPS"].split() == dag["CSV_STEPS"]
     assert workflow["env"]["PG_STEPS"].split() == (dag["PG_STEPS"] if dag["PG_ENABLED"] else [])
-    assert set(dag["CSV_STEPS"] + dag["PG_STEPS"]) <= set(run_daily.STEPS)
+    assert workflow["env"]["API_STEPS"].split() == (dag["API_STEPS"] if dag["API_ENABLED"] else [])
+    assert set(dag["CSV_STEPS"] + dag["PG_STEPS"] + dag["API_STEPS"]) <= set(run_daily.STEPS)
 
 
 def test_run_python_step_calls_run_daily(monkeypatch) -> None:

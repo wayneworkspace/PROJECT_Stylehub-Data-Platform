@@ -17,11 +17,14 @@ from utils_dag import (
 # Two branches; names match STEPS in run_daily.py.
 CSV_STEPS = ["ingest", "bronze", "silver", "gold"]
 PG_STEPS = ["pg_ingest", "pg_bronze", "pg_reconcile", "pg_silver", "pg_gold"]
-# shortcut: Postgres branch paused, the course database host is gone (NXDOMAIN on
-# 2026-10-20); set True and restore the pg tables in 02_data_freshness.sql once
-# POSTGRES_URL works again.
-PG_ENABLED = False
-STEPS = CSV_STEPS + (PG_STEPS if PG_ENABLED else [])
+API_STEPS = ["api_ingest", "api_bronze", "api_silver"]
+PG_ENABLED = True
+# shortcut: API branch off, the course API moved and its new base URL is unknown
+# (the old Supabase URL is gone, 2026-10-20); set STYLEHUB_API_URL, then set True here,
+# API_STEPS in pipeline.yml and api_products in 02_data_freshness.sql.
+API_ENABLED = False
+BRANCHES = [CSV_STEPS] + [PG_STEPS] * PG_ENABLED + [API_STEPS] * API_ENABLED
+STEPS = [step for branch in BRANCHES for step in branch]
 
 default_args = {
     "owner": "data-engineering",
@@ -69,11 +72,10 @@ with DAG(
         for step in STEPS
     }
 
-    chain(*(tasks[step] for step in CSV_STEPS))  # ingest >> bronze >> silver >> gold
-    if PG_ENABLED:
-        chain(*(tasks[step] for step in PG_STEPS))  # pg_ingest >> ... >> pg_gold
+    for branch in BRANCHES:  # ingest >> bronze >> silver >> gold, and so on
+        chain(*(tasks[step] for step in branch))
 
-    # After both branches: alert when a Bronze table was not loaded today.
+    # After every branch: alert when a Bronze table was not loaded today.
     freshness = ExternalPythonOperator(
         task_id="freshness",
         python=PIPELINE_PYTHON,
@@ -82,4 +84,4 @@ with DAG(
         expect_airflow=False,
         expect_pendulum=False,
     )
-    [tasks[branch[-1]] for branch in (CSV_STEPS, PG_STEPS) if branch[-1] in tasks] >> freshness
+    [tasks[branch[-1]] for branch in BRANCHES] >> freshness

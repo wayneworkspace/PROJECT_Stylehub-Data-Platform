@@ -1,0 +1,24 @@
+version: 2
+
+# Daily full snapshot of the StyleHub API products (step api_ingest).
+sources:
+  - name: stylehub_api
+    database: "{{ env_var('GCP_PROJECT_ID') }}"
+    schema: "{{ env_var('BQ_BRONZE', 'stylehub_bronze') }}"
+    config:
+      enabled: "{{ env_var('STYLEHUB_API_URL', '') != '' }}"
+    tables:
+      - name: api_products
+        description: One partition per load day; each partition is a full snapshot.
+        loaded_at_field: _ingested_at
+        freshness:
+          warn_after: {count: 26, period: hour}
+        columns:
+          - name: id
+            data_type: int
+          - name: cost
+            data_type: numeric
+          - name: retail_price
+            data_type: numeric
+          - name: updated_at
+            data_type: timestamp

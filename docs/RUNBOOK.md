@@ -35,6 +35,7 @@ Fill in `secrets/.env`:
 | `GCP_PROJECT_ID`, `GCS_BUCKET` | `dehehe-510014`, `end-to-end-pipeline` |
 | `GOOGLE_APPLICATION_CREDENTIALS` | `secrets/<key>.json`: key of the pipeline service account, for Docker |
 | `POSTGRES_URL` | The read-only course database URL |
+| `STYLEHUB_API_URL`, `STYLEHUB_API_KEY` | Course API base URL; the key is optional (without it a new one is asked each run) |
 | `AIRFLOW_DB_PASSWORD`, `AIRFLOW_ADMIN_PASSWORD` | New random passwords |
 | `AIRFLOW_SECRET_KEY`, `AIRFLOW_FERNET_KEY` | Generate with the commands in `.env.example` |
 | `AIRFLOW_WEB_PORT` | A free local port, for example `8082` |

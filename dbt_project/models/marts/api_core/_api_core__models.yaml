@@ -1,0 +1,10 @@
+version: 2
+
+models:
+  - name: api_products
+    description: Product catalog from the StyleHub API, newest snapshot.
+    columns:
+      - name: product_id
+        data_tests: [unique, not_null]
+      - name: retail_price
+        data_tests: [not_null]

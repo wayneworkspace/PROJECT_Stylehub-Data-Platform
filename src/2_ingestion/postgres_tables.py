@@ -34,8 +34,9 @@ PG_ARROW_TYPES = {
     "real": pa.float64(),
     "text": pa.string(),
     "character varying": pa.string(),
-    "timestamp without time zone": pa.timestamp("ns"),
-    "timestamp with time zone": pa.timestamp("ns", tz="UTC"),
+    # Microseconds: BigQuery reads nanosecond Parquet timestamps as INTEGER.
+    "timestamp without time zone": pa.timestamp("us"),
+    "timestamp with time zone": pa.timestamp("us", tz="UTC"),
 }
 
 
