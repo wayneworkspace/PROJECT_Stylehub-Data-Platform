@@ -38,6 +38,13 @@ col_issue.write(pd.Series(issues, name="rows"))
 # 2. Types: floats for statistics, then smaller dtypes.
 df = raw.astype(dict.fromkeys(eda.NUMERIC_COLUMNS, "float64"))
 df["order_date"] = pd.to_datetime(df["order_date"])
+# Missing numbers: keep a flag column, then fill with the median.
+df = eda.fill_missing(df, eda.NUMERIC_COLUMNS)
+flags = df.filter(like="_missing").sum()
+st.caption(
+    "Missing numbers filled with the median: "
+    + (", ".join(f"{c.removesuffix('_missing')} ({n})" for c, n in flags.items()) or "none")
+)
 before = eda.memory_mb(df)
 df = eda.optimize_dtypes(df)
 log.info("EDA rows %s, memory %s MB -> %s MB", len(df), before, eda.memory_mb(df))
@@ -57,12 +64,27 @@ lines = alt.Chart(stats).mark_rule(strokeWidth=2).encode(x="value:Q", color="sta
 st.altair_chart(bars + lines, width="stretch")
 
 sample = df.sample(min(len(df), SAMPLE_ROWS), random_state=0)
+st.subheader("Density of item amount (KDE)")
+kde = (
+    alt.Chart(sample).transform_density("amount", as_=["amount", "density"]).mark_area(opacity=0.5)
+)
+st.altair_chart(kde.encode(x="amount:Q", y="density:Q"), width="stretch")
+
 st.subheader(f"Amount by category (random sample of {len(sample):,} items)")
 box = alt.Chart(sample).mark_boxplot().encode(x="category:N", y="amount:Q")
 st.altair_chart(box, width="stretch")
 
 st.header("4. Revenue over time and by group")
 st.line_chart(df.groupby("order_date")["amount"].sum())
+st.subheader("Revenue per month")
+st.bar_chart(df.set_index("order_date")["amount"].resample("ME").sum())
+st.subheader("Revenue by quarter and category")
+quarters = eda.add_time_features(df)
+st.dataframe(
+    quarters.pivot_table(
+        index=["year", "quarter"], columns="category", values="amount", aggfunc="sum", observed=True
+    ).round(2)
+)
 st.bar_chart(eda.kpis_by(df, ["category"])["revenue"])
 st.subheader("KPIs by category and state (top 20)")
 st.dataframe(eda.kpis_by(df, ["category", "state"]).head(20))
@@ -80,9 +102,17 @@ heatmap = (
 )
 st.altair_chart(heatmap + heatmap.mark_text().encode(text="corr:Q", color=alt.value("black")))
 
-st.header("6. Outliers (IQR 1.5)")
+st.header("6. Outliers")
 outlier_cols = ["sale_price", "quantity", "amount"]
-st.dataframe(eda.outlier_summary(df, outlier_cols))
+outliers = eda.outlier_summary(df, outlier_cols)
+col_iqr, col_z = st.columns(2)
+col_iqr.caption("IQR 1.5: works for skewed data")
+col_iqr.dataframe(outliers)
+col_z.caption("z-score above 3: fits near-normal data")
+col_z.dataframe(eda.zscore_summary(df, outlier_cols))
 capped = eda.cap_outliers(df, outlier_cols)
 st.caption("Max before and after capping; the row count stays the same.")
 st.dataframe(pd.DataFrame({"before": df[outlier_cols].max(), "after": capped[outlier_cols].max()}))
+
+st.header("7. Conclusions")
+st.markdown("\n".join(f"- {line}" for line in eda.findings(df, outliers)))

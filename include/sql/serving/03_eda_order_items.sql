@@ -1,4 +1,5 @@
--- Order items of the last 90 days for EDA; partition filter keeps cost low.
+-- Order items of the last 90 days for EDA, without rows deleted in Postgres;
+-- the partition filter keeps cost low.
 SELECT
   i.id,
   i.order_id,
@@ -19,4 +20,6 @@ LEFT JOIN `${project}.${silver}.pg_dim_products` AS p
   ON i.product_id = p.id
 LEFT JOIN `${project}.${silver}.pg_dim_users` AS u
   ON i.user_id = u.id
-WHERE i.order_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY)
+WHERE
+  i.order_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY)
+  AND NOT i.is_deleted
