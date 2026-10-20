@@ -270,7 +270,7 @@ def test_csv_ingest_writes_raw(cfg, monkeypatch) -> None:
     with pytest.raises(ValueError, match="No CSV table"):
         csv_tables.extract_full("events", cfg)
     client.tables["proj.stylehub.orders"] = csv_source(5)
-    with pytest.raises(csv_tables.SourceRowMismatch):
+    with pytest.raises(schema_check.SourceRowMismatch):
         csv_tables.extract_full("orders", cfg)
 
 
@@ -345,7 +345,7 @@ def test_postgres_incremental_ingest(cfg, monkeypatch) -> None:
     monkeypatch.setattr(config, "pg_engine", lambda cfg: FakePg(9))
     chunks = [pd.DataFrame({"id": [1], "total_amount": [None]})]
     end = datetime.fromisoformat("2026-10-16")
-    with pytest.raises(pg_tables.SourceRowMismatch):
+    with pytest.raises(schema_check.SourceRowMismatch):
         pg_tables.extract_to_raw("orders", None, end, schema, "2026-10-15", cfg)
     assert list(gcs.uploaded) and not any(p.endswith("_SUCCESS") for p in gcs.uploaded)
     with pytest.raises(ValueError, match="No Postgres table"):
@@ -461,7 +461,7 @@ def test_api_users_incremental(cfg, monkeypatch) -> None:
     monkeypatch.setattr(api_users, "READ_ATTEMPTS", 1)
     fake = FakeApi([[api_user(1)]], counts=[9])
     monkeypatch.setattr(api.requests, "Session", lambda: fake)
-    with pytest.raises(api_users.SourceRowMismatch, match="after 1 reads"):
+    with pytest.raises(schema_check.SourceRowMismatch, match="after 1 reads"):
         api_users.ingest("2026-10-20", cfg)
     monkeypatch.setattr(api.requests, "Session", lambda: FakeApi([[]]))
     gcs.uploaded.clear()

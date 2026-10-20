@@ -101,52 +101,15 @@ jobs:
           done
           echo "Dashboard image: \`$REGISTRY/stylehub-dashboard:$SHA\`" >> "$GITHUB_STEP_SUMMARY"
 
-  dbt-staging:
-    name: dbt build on staging
-    needs: publish-images
-    if: >-
-      !cancelled() && needs.publish-images.result == 'success' &&
-      vars.WIF_PIPELINE_SERVICE_ACCOUNT != ''
-    runs-on: ubuntu-latest
-    environment: staging
-    permissions:
-      contents: read
-      id-token: write
-    env:
-      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
-      GCP_LOCATION: ${{ vars.GCP_REGION }}
-      # Reads production Bronze, writes only the _dev datasets (tables expire after a day).
-      BQ_STAGING: stylehub_staging_dev
-      BQ_SILVER: stylehub_silver_dev
-      BQ_GOLD: stylehub_gold_dev
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ github.event.workflow_run.head_sha }}
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
-        with:
-          version: ${{ env.UV_VERSION }}
-          python-version: ${{ env.PYTHON_VERSION }}
-      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
-        with:
-          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
-          service_account: ${{ vars.WIF_PIPELINE_SERVICE_ACCOUNT }}
-      - name: Build models and run their tests on the staging datasets
-        run: |
-          uv sync --frozen --extra dbt
-          uv run dbt deps --project-dir dbt_project --profiles-dir dbt_project --log-path logs/dbt
-          uv run dbt build --project-dir dbt_project --profiles-dir dbt_project --log-path logs/dbt \
-            --fail-fast --indirect-selection cautious --exclude tag:events
-
   dbt-run:
-    name: dbt build on production
-    needs: dbt-staging
+    name: dbt build on staging, then production
+    needs: publish-images
     # Same group as pipeline.yml and restate.yml: one build of the real tables at a time.
     concurrency:
       group: pipeline
       cancel-in-progress: false
     if: >-
-      !cancelled() && needs.dbt-staging.result == 'success' &&
+      !cancelled() && needs.publish-images.result == 'success' &&
       vars.WIF_PIPELINE_SERVICE_ACCOUNT != ''
     runs-on: ubuntu-latest
     permissions:
@@ -155,6 +118,8 @@ jobs:
     env:
       GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
       GCP_LOCATION: ${{ vars.GCP_REGION }}
+      DBT: uv run dbt --log-path logs/dbt
+      DBT_ARGS: --project-dir dbt_project --profiles-dir dbt_project
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -163,16 +128,21 @@ jobs:
         with:
           version: ${{ env.UV_VERSION }}
           python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
       - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
         with:
           workload_identity_provider: ${{ vars.WIF_PROVIDER }}
           service_account: ${{ vars.WIF_PIPELINE_SERVICE_ACCOUNT }}
-      - name: Build models and run their tests on the real datasets
-        run: |
-          uv sync --frozen --extra dbt
-          uv run dbt deps --project-dir dbt_project --profiles-dir dbt_project --log-path logs/dbt
-          uv run dbt build --project-dir dbt_project --profiles-dir dbt_project --log-path logs/dbt \
-            --fail-fast --indirect-selection cautious --exclude tag:events
+      - name: Install dbt and its packages
+        run: uv sync --frozen --extra dbt && $DBT deps $DBT_ARGS
+      - name: Staging (reads production Bronze, writes the _dev datasets; tables expire after a day)
+        env:
+          BQ_STAGING: stylehub_staging_dev
+          BQ_SILVER: stylehub_silver_dev
+          BQ_GOLD: stylehub_gold_dev
+        run: $DBT build $DBT_ARGS --fail-fast --indirect-selection cautious --exclude tag:events
+      - name: Production, only after staging passed
+        run: $DBT build $DBT_ARGS --fail-fast --indirect-selection cautious --exclude tag:events
 
   deploy-dashboard:
     name: Put the tested dashboard on Cloud Run
@@ -200,7 +170,7 @@ jobs:
 
   notify:
     name: Tell Discord that CD failed
-    needs: [terraform-apply, publish-images, dbt-staging, dbt-run, deploy-dashboard]
+    needs: [terraform-apply, publish-images, dbt-run, deploy-dashboard]
     if: failure()
     runs-on: ubuntu-latest
     env:

@@ -47,10 +47,6 @@ SCHEMA = pa.schema(
 )
 
 
-class SourceRowMismatch(RuntimeError):
-    """Rows read differ from the count the API reports."""
-
-
 def read_window(data_date: str, watermark: datetime | None) -> tuple[date, date]:
     """Days to read, both inclusive: watermark day minus lookback, up to data_date."""
     start = FIRST_LOAD_FROM if watermark is None else watermark.date() - timedelta(LOOKBACK_DAYS)
@@ -97,7 +93,7 @@ def read_complete(start: date, end: date, cfg: config.Settings) -> list[dict]:
             attempt,
             READ_ATTEMPTS,
         )
-    raise SourceRowMismatch(
+    raise schema_check.SourceRowMismatch(
         f"{TABLE}: rows still differ from meta.count after {READ_ATTEMPTS} reads"
     )
 

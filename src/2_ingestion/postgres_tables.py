@@ -40,10 +40,6 @@ PG_ARROW_TYPES = {
 }
 
 
-class SourceRowMismatch(RuntimeError):
-    """Rows read differ from the source count for the same window."""
-
-
 def raw_name(table: str) -> str:
     """Raw and Bronze name, kept apart from the CSV tables."""
     return f"pg_{table}"
@@ -119,7 +115,9 @@ def extract_to_raw(
                 )
                 written += len(chunk)
         if written != expected:
-            raise SourceRowMismatch(f"{table}: read {written} rows, the source has {expected}")
+            raise schema_check.SourceRowMismatch(
+                f"{table}: read {written} rows, the source has {expected}"
+            )
         if written:
             raw_writer.mark_batch_complete(raw_name(table), data_date, batch_id, cfg)
         return written

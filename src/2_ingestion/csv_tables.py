@@ -22,10 +22,6 @@ DROP_COLUMNS = {"users": ["user_geom"]}
 MAX_LABEL_AGE_DAYS = 3
 
 
-class SourceRowMismatch(RuntimeError):
-    """Rows read differ from the source table's row count."""
-
-
 def warn_if_backdated(data_date: str) -> None:
     """Warn when data_date is older than MAX_LABEL_AGE_DAYS days."""
     age_days = (datetime.now(UTC).date() - date.fromisoformat(data_date)).days
@@ -54,7 +50,9 @@ def extract_full(table: str, cfg: config.Settings) -> pd.DataFrame:
         lambda: client.list_rows(source, selected_fields=fields).to_dataframe()
     )
     if source.num_rows is not None and len(df) != source.num_rows:
-        raise SourceRowMismatch(f"{table}: read {len(df)} rows, the source has {source.num_rows}")
+        raise schema_check.SourceRowMismatch(
+            f"{table}: read {len(df)} rows, the source has {source.num_rows}"
+        )
     return schema_check.type_empty_columns(df, table)
 
 

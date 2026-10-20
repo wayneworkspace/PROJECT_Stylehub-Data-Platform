@@ -86,26 +86,10 @@ jobs:
         run: |
           uv sync --frozen --extra dbt
           uv run dbt deps --project-dir dbt_project --profiles-dir dbt_project --log-path logs/dbt
-      - name: Course tables branch
+      - name: Every branch, day by day
         run: |
           for day in $DAYS; do
-            for step in $CSV_STEPS; do
-              uv run python -m src.4_transform.run_daily "$day" "$step" "$RUN_ID"
-            done
-          done
-      - name: Postgres branch
-        if: env.PG_STEPS != ''
-        run: |
-          for day in $DAYS; do
-            for step in $PG_STEPS; do
-              uv run python -m src.4_transform.run_daily "$day" "$step" "$RUN_ID"
-            done
-          done
-      - name: API branch
-        if: env.API_STEPS != ''
-        run: |
-          for day in $DAYS; do
-            for step in $API_STEPS; do
+            for step in $CSV_STEPS $PG_STEPS $API_STEPS; do
               uv run python -m src.4_transform.run_daily "$day" "$step" "$RUN_ID"
             done
           done
